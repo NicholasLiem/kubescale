@@ -1,19 +1,19 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: brain-controller
+  name: brain
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      app: brain-controller
+      app: brain
   template:
     metadata:
       labels:
-        app: brain-controller
+        app: brain
     spec:
       containers:
-        - name: brain-controller
+        - name: brain
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           ports:
             - containerPort: 8080

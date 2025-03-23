@@ -1,6 +1,6 @@
 replicaCount: 1
 image:
-  repository: localhost:5000/brain-controller # localhost:5000 for local registry
+  repository: localhost:5000/brain # localhost:5000 for local registry
   tag: latest
   pullPolicy: IfNotPresent
 
