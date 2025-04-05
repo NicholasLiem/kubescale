@@ -3,6 +3,7 @@
 # Set variables
 APP_NAME="brain"
 IMAGE_TAG="latest"
+NAMESPACE="kube-scale"
 HELM_RELEASE_NAME="brain"
 HELM_CHART_PATH="../../helm-charts/brain-controller"
 
@@ -31,7 +32,7 @@ echo "Helm release '$HELM_RELEASE_NAME' has been installed/upgraded."
 
 # Check if the deployment is successful
 echo "Checking deployment status..."
-kubectl rollout status deployment/$HELM_RELEASE_NAME
+kubectl rollout status deployment/$HELM_RELEASE_NAME -n $NAMESPACE
 if [ $? -eq 0 ]; then
     echo "Deployment successful!"
 else
@@ -42,7 +43,7 @@ fi
 # Checking health port
 echo "Checking health port..."
 # Get new pod name grep brain, get anything starts with brain
-POD_NAME=$(kubectl get pods --no-headers -o custom-columns=":metadata.name" | grep $HELM_RELEASE_NAME | head -n 1)
+POD_NAME=$(kubectl get pods -n $NAMESPACE --no-headers -o custom-columns=":metadata.name" | grep $HELM_RELEASE_NAME | head -n 1)
 if [ -z "$POD_NAME" ]; then
     echo "No pod found for the release."
     exit 1
@@ -51,4 +52,4 @@ echo "Port forwarding to pod $POD_NAME..."
 # Port forward to the pod
 # Note: This will run in the background
 # and you can access the service at http://localhost:8080
-kubectl port-forward pod/$POD_NAME 8080:8080
+kubectl port-forward pod/$POD_NAME 8080:8080 -n $NAMESPACE

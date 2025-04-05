@@ -19,7 +19,7 @@ func RegisterRoutes(router *gin.Engine, resourceManager *resource_manager.Resour
     mlCallbackGroup := router.Group("/ml-callback")
     {
 		// TODO: Implement real scaling logic
-        mlCallbackGroup.POST("/scale-up", func(c *gin.Context) {
+        mlCallbackGroup.GET("/scale-up", func(c *gin.Context) {
             err := resourceManager.ScalePods(10)
             if err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to scale up: %v", err)})
@@ -29,7 +29,7 @@ func RegisterRoutes(router *gin.Engine, resourceManager *resource_manager.Resour
         })
 
 		// TODO: Implement real scaling logic
-        mlCallbackGroup.POST("/scale-down", func(c *gin.Context) {
+        mlCallbackGroup.GET("/scale-down", func(c *gin.Context) {
             err := resourceManager.ScalePods(1)
             if err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to scale down: %v", err)})

@@ -1,5 +1,7 @@
 replicaCount: 1
 
+namespace: kube-scale
+
 image:
   name: brain
   repository: brain
