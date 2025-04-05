@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	kubeclient "github.com/NicholasLiem/brain-controller/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -14,13 +13,9 @@ type ResourceManager struct {
     clientSet *kubernetes.Clientset
 }
 
-func NewResourceManager() (*ResourceManager, error) {
-    clientSet, err := kubeclient.GetKubernetesClient()
-    if err != nil {
-        return nil, fmt.Errorf("failed to initialize ResourceManager: %w", err)
-    }
-
-    return &ResourceManager{clientSet: clientSet}, nil
+func NewResourceManager(kubeClient *kubernetes.Clientset) (*ResourceManager, error) {
+    fmt.Println("ResourceManager initialized successfully!")
+    return &ResourceManager{clientSet: kubeClient}, nil
 }
 
 func (rm *ResourceManager) ScalePods(replicaCount int) error {
