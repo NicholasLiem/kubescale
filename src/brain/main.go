@@ -8,9 +8,15 @@ import (
 
 	"github.com/NicholasLiem/brain-controller/resource_manager"
 	"github.com/NicholasLiem/brain-controller/warm_pool_manager"
+	"github.com/joho/godotenv"
 )
 
 func main() {
+	// Initialize GoDotEnv
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatalf("Error loading .env file")
+	}
     // Initialize ResourceManager
     resourceManager, err := resource_manager.NewResourceManager()
     if err != nil {

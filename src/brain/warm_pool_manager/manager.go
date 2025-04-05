@@ -11,7 +11,6 @@ type WarmPoolManager struct {
     clientSet *kubernetes.Clientset
 }
 
-// NewWarmPoolManager initializes the WarmPoolManager with a Kubernetes client
 func NewWarmPoolManager() (*WarmPoolManager, error) {
     clientSet, err := kubeclient.GetKubernetesClient()
     if err != nil {

@@ -17,4 +17,7 @@ WORKDIR /root/
 
 COPY --from=builder /app/brain-controller .
 
+# Copy the env
+COPY --from=builder /app/.env .
+
 CMD ["./brain-controller"]

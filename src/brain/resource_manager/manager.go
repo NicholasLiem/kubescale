@@ -3,6 +3,7 @@ package resource_manager
 import (
 	"context"
 	"fmt"
+	"os"
 
 	kubeclient "github.com/NicholasLiem/brain-controller/client"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,8 +24,14 @@ func NewResourceManager() (*ResourceManager, error) {
 }
 
 func (rm *ResourceManager) ScalePods(replicaCount int) error {
-    deploymentName := "brain" // Name of the deployment
-    namespace := "default"   // Namespace of the deployment
+    deploymentName := os.Getenv("DEPLOYMENT_NAME")
+	if deploymentName == "" {
+		return fmt.Errorf("environment variable DEPLOYMENT_NAME is not set")
+	}
+    namespace := os.Getenv("NAMESPACE")
+	if namespace == "" {
+		return fmt.Errorf("environment variable NAMESPACE is not set")
+	}
 
     scale, err := rm.clientSet.AppsV1().Deployments(namespace).GetScale(context.TODO(), deploymentName, metav1.GetOptions{})
     if err != nil {
