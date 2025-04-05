@@ -1,0 +1,23 @@
+replicaCount: 2
+
+image:
+  name: mubench
+  repository: msvcbench/mubench
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    memory: "64Mi"
+    cpu: "100m"
+  limits:
+    memory: "128Mi"
+    cpu: "250m"
+
+namespace: warm-pool
+
+ingress:
+  enabled: true
+  host: warm-pool.local
+  path: /
+  servicePort: 8080
