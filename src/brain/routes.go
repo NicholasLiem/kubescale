@@ -1,9 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 
+	callback "github.com/NicholasLiem/brain-controller/dto"
 	"github.com/NicholasLiem/brain-controller/resource_manager"
 	"github.com/NicholasLiem/brain-controller/warm_pool_manager"
 	"github.com/gin-gonic/gin"
@@ -18,24 +20,24 @@ func RegisterRoutes(router *gin.Engine, resourceManager *resource_manager.Resour
     // ML Callback group
     mlCallbackGroup := router.Group("/ml-callback")
     {
-		// TODO: Implement real scaling logic
-        mlCallbackGroup.GET("/scale-up", func(c *gin.Context) {
-            err := resourceManager.ScalePods(10)
+        mlCallbackGroup.POST("/scale", func(c *gin.Context) {
+            body, err := c.GetRawData()
+            if err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+                return
+            }
+
+            var scaleRequest callback.ScaleRequest
+            if err := json.Unmarshal(body, &scaleRequest); err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format"})
+                return
+            }
+            err = resourceManager.ScalePods(scaleRequest)
             if err != nil {
                 c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to scale up: %v", err)})
                 return
             }
             c.JSON(http.StatusOK, gin.H{"message": "Scale-up triggered successfully"})
-        })
-
-		// TODO: Implement real scaling logic
-        mlCallbackGroup.GET("/scale-down", func(c *gin.Context) {
-            err := resourceManager.ScalePods(1)
-            if err != nil {
-                c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to scale down: %v", err)})
-                return
-            }
-            c.JSON(http.StatusOK, gin.H{"message": "Scale-down triggered successfully"})
         })
 
 		// TODO: Implement real preparation logic

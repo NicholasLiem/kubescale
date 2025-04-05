@@ -3,8 +3,8 @@ package resource_manager
 import (
 	"context"
 	"fmt"
-	"os"
 
+	callback "github.com/NicholasLiem/brain-controller/dto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -18,15 +18,21 @@ func NewResourceManager(kubeClient *kubernetes.Clientset) (*ResourceManager, err
     return &ResourceManager{clientSet: kubeClient}, nil
 }
 
-func (rm *ResourceManager) ScalePods(replicaCount int) error {
-    deploymentName := os.Getenv("DEPLOYMENT_NAME")
-	if deploymentName == "" {
-		return fmt.Errorf("environment variable DEPLOYMENT_NAME is not set")
-	}
-    namespace := os.Getenv("NAMESPACE")
-	if namespace == "" {
-		return fmt.Errorf("environment variable NAMESPACE is not set")
-	}
+func (rm *ResourceManager) ScalePods(scaleRequest callback.ScaleRequest) error {
+    replicaCount := scaleRequest.ReplicaCount
+    if replicaCount <= 0 {
+        return fmt.Errorf("invalid replica count: %d", replicaCount)
+    }
+
+    deploymentName := scaleRequest.DeploymentName
+    if deploymentName == "" {
+        return fmt.Errorf("deployment name is required")
+    }
+
+    namespace := scaleRequest.Namespace
+    if namespace == "" {
+        return fmt.Errorf("namespace is required")
+    }
 
     scale, err := rm.clientSet.AppsV1().Deployments(namespace).GetScale(context.TODO(), deploymentName, metav1.GetOptions{})
     if err != nil {
