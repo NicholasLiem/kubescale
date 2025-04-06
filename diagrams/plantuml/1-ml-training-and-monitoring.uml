@@ -1,0 +1,18 @@
+@startuml
+title 1. ML Training and Monitoring Phase
+
+participant "ML Data Collector" as MLCollector
+participant "ML Predictor" as MLPredictor
+participant "Warm Pool Controller" as WarmController
+participant "Kubernetes System" as K8s
+
+loop Every 1-5 minutes
+    MLCollector -> MLCollector: Collect metrics (CPU, memory, request rate)
+    note right of MLCollector: Historical patterns, time-series data
+    MLCollector -> MLPredictor: Feed time-series data
+    MLPredictor -> MLPredictor: Update prediction model
+    note right of MLPredictor: ARIMA/LSTM model training
+    MLPredictor -> WarmController: Update warm pool size recommendation
+    WarmController -> K8s: Adjust baseline warm pool size
+end
+@enduml

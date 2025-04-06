@@ -1,0 +1,21 @@
+@startuml
+title 5. HPA Response and Transition Phase
+
+participant "User Requests" as User
+participant "Kubernetes Service" as K8sService
+participant "Kubernetes HPA" as K8sHPA
+participant "Warm Pool Pods" as WarmPool
+participant "Main Replicas" as MainReplica
+
+' Traditional HPA Response (Slower)
+K8sService -> K8sHPA: Metrics exceed thresholds
+K8sHPA -> MainReplica: Scale up main replicas
+note right of MainReplica: Cold start delay (15-90 seconds)
+MainReplica -> K8sService: Report "Initializing"
+K8sService -> WarmPool: Continue routing to warm pods
+
+' Transition to Normal Operation
+MainReplica -> K8sService: Report "Ready"
+K8sService -> WarmPool: Gradually reduce traffic to warm pods
+K8sService -> MainReplica: Increase traffic to main replicas
+@enduml

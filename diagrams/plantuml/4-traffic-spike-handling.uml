@@ -1,0 +1,24 @@
+@startuml
+title 4. Traffic Spike Handling Phase
+
+participant "User Requests" as User
+participant "Kubernetes Service" as K8sService
+participant "ML Data Collector" as MLCollector
+participant "Prediction Verifier" as MLVerifier
+participant "Warm Pool Controller" as WarmController
+participant "Warm Pool Pods" as WarmPool
+
+' Traffic Spike Begins
+User -> K8sService: Increased request volume
+K8sService -> MLCollector: Traffic spike detected
+MLCollector -> MLVerifier: Current metrics for verification
+MLVerifier -> MLVerifier: Compare actual vs. predicted metrics
+
+' Warm Pool Activation
+MLVerifier -> WarmController: Confirm spike matches prediction
+WarmController -> WarmPool: Activate portion of warm pods
+note right of WarmPool: Update labels: state=active
+WarmController -> K8sService: Update service selectors
+K8sService -> WarmPool: Route traffic to activated warm pods
+note right of WarmPool: Activated warm pods handle requests without delay
+@enduml

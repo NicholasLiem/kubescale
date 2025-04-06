@@ -1,0 +1,22 @@
+sequenceDiagram
+    title 2. Traffic Monitoring and Prediction Phase
+
+    participant User as User Requests
+    participant K8sService as Kubernetes Service
+    participant MLCollector as ML Data Collector
+    participant MLPredictor as ML Predictor
+    participant WarmController as Warm Pool Controller
+
+    %% Regular State - Monitoring
+    User->>K8sService: Regular traffic flow
+    K8sService->>MLCollector: Record request metrics
+    MLCollector->>MLPredictor: Process current metrics
+    MLPredictor->>MLPredictor: Compare with baseline patterns
+
+    %% Prediction of Upcoming Load Spike
+    MLPredictor->>MLPredictor: Detect pattern indicating future spike
+    MLPredictor->>WarmController: Predict spike in 5 minutes with 85% confidence
+    Note right of MLPredictor: Includes prediction verification logic
+
+    %% Verification logic
+    MLPredictor->>MLPredictor: Store prediction for later verification

@@ -1,0 +1,72 @@
+@startuml
+title ML-Based Warm Pool Scaling in Kubernetes
+
+participant "User Requests" as User
+participant "ML Data Collector" as MLCollector
+participant "ML Predictor" as MLPredictor
+participant "Warm Pool Controller" as WarmController
+participant "Kubernetes HPA" as K8sHPA
+participant "Warm Pool Pods" as WarmPool
+participant "Main Replicas" as MainReplica
+participant "Kubernetes Service" as K8sService
+
+note over MLCollector, MLPredictor: Continuous ML Pipeline
+
+' ML Training and Monitoring Phase
+loop Every 1-5 minutes
+    MLCollector -> MLCollector: Collect historical metrics (CPU, memory, request rate)
+    MLCollector -> MLPredictor: Feed time-series data
+    MLPredictor -> MLPredictor: Update prediction model
+    MLPredictor -> WarmController: Update warm pool size recommendation
+end
+
+' Regular State - Monitoring
+loop Continuous monitoring
+    User -> K8sService: Regular traffic flow
+    K8sService -> MLCollector: Record request metrics
+    MLCollector -> MLPredictor: Process current metrics
+    MLPredictor -> MLPredictor: Compare with baseline patterns
+end
+
+' Prediction of Upcoming Load Spike
+MLPredictor -> MLPredictor: Detect pattern indicating future spike
+MLPredictor -> WarmController: Predict spike in 5 minutes with 85% confidence
+
+' Proactive Warm Pool Preparation
+WarmController -> WarmPool: Pre-scale warm pool to handle predicted load
+note right of WarmPool: Warm pods fully initialized but idle
+
+' Traffic Spike Begins
+User -> K8sService: Increased request volume
+K8sService -> MLCollector: Traffic spike detected
+MLCollector -> MLPredictor: Confirm prediction accuracy
+
+' Warm Pool Activation
+MLPredictor -> WarmController: Confirm actual spike matches prediction
+WarmController -> WarmPool: Activate portion of warm pods
+WarmController -> K8sService: Update service selectors
+K8sService -> WarmPool: Route traffic to activated warm pods
+note right of WarmPool: Activated warm pods handle requests without delay
+
+' Traditional HPA Response (Slower)
+K8sService -> K8sHPA: Metrics exceed thresholds
+K8sHPA -> MainReplica: Scale up main replicas
+note right of MainReplica: Cold start delay (15-90 seconds)
+MainReplica -> K8sService: Report "Initializing"
+K8sService -> WarmPool: Continue routing to warm pods
+
+' Transition to Normal Operation
+MainReplica -> K8sService: Report "Ready"
+K8sService -> WarmPool: Gradually reduce traffic to warm pods
+K8sService -> MainReplica: Increase traffic to main replicas
+
+' Recovery and Preparation for Next Spike
+MLPredictor -> MLPredictor: Analyze prediction accuracy
+MLPredictor -> MLPredictor: Update model with new data
+WarmController -> WarmPool: Replenish warm pool
+
+' Scale Down After Traffic Normalizes
+MLPredictor -> WarmController: Predict normal traffic for next period
+WarmController -> WarmPool: Scale down unnecessary warm pods
+WarmPool -> WarmController: Acknowledge scale down
+@enduml

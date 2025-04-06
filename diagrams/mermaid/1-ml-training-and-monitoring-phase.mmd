@@ -1,0 +1,17 @@
+sequenceDiagram
+    title 1. ML Training and Monitoring Phase
+
+    participant MLCollector as ML Data Collector
+    participant MLPredictor as ML Predictor
+    participant WarmController as Warm Pool Controller
+    participant K8s as Kubernetes System
+
+    loop Every 1-5 minutes
+        MLCollector->>MLCollector: Collect metrics (CPU, memory, request rate)
+        Note right of MLCollector: Historical patterns, time-series data
+        MLCollector->>MLPredictor: Feed time-series data
+        MLPredictor->>MLPredictor: Update prediction model
+        Note right of MLPredictor: ARIMA/LSTM model training
+        MLPredictor->>WarmController: Update warm pool size recommendation
+        WarmController->>K8s: Adjust baseline warm pool size
+    end
