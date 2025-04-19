@@ -46,7 +46,7 @@ func main() {
     router := gin.Default()
 
     // Register routes
-    RegisterRoutes(router, resourceManager, warmPoolManager)
+    RegisterRoutes(router, resourceManager, warmPoolManager, kubeClient)
 
     // Start the HTTP server
     port := "8080"

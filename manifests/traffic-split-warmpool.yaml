@@ -1,0 +1,22 @@
+apiVersion: networking.istio.io/v1alpha3
+kind: VirtualService
+metadata:
+  name: traffic-split
+  namespace: istio-system
+spec:
+  hosts:
+  - "*"
+  gateways:
+  - istio-system/ingressgateway
+  http:
+  - route:
+    - destination:
+        host: gw-nginx.default.svc.cluster.local
+        port:
+          number: 80
+      weight: 90
+    - destination:
+        host: warmpool-service.warm-pool.svc.cluster.local
+        port:
+          number: 80
+      weight: 10
