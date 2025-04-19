@@ -10,7 +10,7 @@ import (
     "k8s.io/client-go/rest"
 )
 
-func GetKubernetesClient() (*kubernetes.Clientset, error) {
+func GetKubernetesClientAndConfig() (*kubernetes.Clientset, *rest.Config, error) {
     // Try to use in-cluster config
     config, err := rest.InClusterConfig()
     if err != nil {
@@ -20,17 +20,17 @@ func GetKubernetesClient() (*kubernetes.Clientset, error) {
         kubeconfig := filepath.Join(homeDir(), ".kube", "config")
         config, err = clientcmd.BuildConfigFromFlags("", kubeconfig)
         if err != nil {
-            return nil, fmt.Errorf("failed to load kubeconfig: %v", err)
+            return nil, nil, fmt.Errorf("failed to load kubeconfig: %v", err)
         }
     }
 
     // Create Kubernetes clientset
     clientset, err := kubernetes.NewForConfig(config)
     if err != nil {
-        return nil, fmt.Errorf("failed to create Kubernetes clientset: %v", err)
+        return nil, nil, fmt.Errorf("failed to create Kubernetes clientset: %v", err)
     }
 
-    return clientset, nil
+    return clientset, config, nil
 }
 
 func homeDir() string {

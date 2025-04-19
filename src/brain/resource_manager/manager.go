@@ -7,15 +7,17 @@ import (
 	callback "github.com/NicholasLiem/brain-controller/dto"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+    istioclientset "istio.io/client-go/pkg/clientset/versioned"
 )
 
 type ResourceManager struct {
     clientSet *kubernetes.Clientset
+    istioClientSet *istioclientset.Clientset
 }
 
-func NewResourceManager(kubeClient *kubernetes.Clientset) (*ResourceManager, error) {
+func NewResourceManager(kubeClient *kubernetes.Clientset, istioClient *istioclientset.Clientset) (*ResourceManager, error) {
     fmt.Println("ResourceManager initialized successfully!")
-    return &ResourceManager{clientSet: kubeClient}, nil
+    return &ResourceManager{clientSet: kubeClient, istioClientSet: istioClient}, nil
 }
 
 func (rm *ResourceManager) ScalePods(scaleRequest callback.ScaleRequest) error {

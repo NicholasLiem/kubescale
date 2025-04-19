@@ -5,6 +5,7 @@ import (
 	"log"
 
 	kubeclient "github.com/NicholasLiem/brain-controller/client"
+    istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	"github.com/NicholasLiem/brain-controller/resource_manager"
 	"github.com/NicholasLiem/brain-controller/warm_pool_manager"
 	"github.com/gin-gonic/gin"
@@ -19,13 +20,18 @@ func main() {
     }
 
     // Initialize kubernetes client
-    kubeClient, err := kubeclient.GetKubernetesClient()
+    kubeClient, restConfig, err := kubeclient.GetKubernetesClientAndConfig()
     if err != nil {
         log.Fatalf("Failed to initialize Kubernetes client: %v", err)
     }
 
+    istioClient, err := istioclientset.NewForConfig(restConfig)
+    if err != nil {
+        log.Fatalf("Failed to initialize Istio client: %v", err)
+    }
+
     // Initialize ResourceManager
-    resourceManager, err := resource_manager.NewResourceManager(kubeClient)
+    resourceManager, err := resource_manager.NewResourceManager(kubeClient, istioClient)
     if err != nil {
         log.Fatalf("Failed to initialize ResourceManager: %v", err)
     }
