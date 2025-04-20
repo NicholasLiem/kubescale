@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: internal-services-warm-pool
+  namespace: {{ .Values.namespace }}
+data:
+  Colosseum.py: |-
+{{ .Files.Get "files/Colosseum.py" | indent 4 }}
+  Loader.py: |-
+{{ .Files.Get "files/Loader.py" | indent 4 }}
+  README.md: |-
+{{ .Files.Get "files/README.md" | indent 4 }}

@@ -1,12 +1,21 @@
+{{- range .Values.apps.sApps }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: warm-pool
-  namespace: {{ .Values.namespace }}
+  name: {{ .name }}-warm-pool
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app: {{ .name }}-warm-pool
 spec:
-  selector:
-    app: warm-pool
+  type: {{ $.Values.service.type }}
   ports:
-    - protocol: TCP
-      port: 8080
-      targetPort: 8080
+  - port: 80
+    targetPort: 8080
+    # nodePort: 31114
+    name: http-mubserviceport-warm-pool
+  - port: 51313
+    targetPort: 51313
+    name: grpc-mubserviceport-warm-pool
+  selector:
+    app: {{ .name }}-warm-pool
+{{- end }}

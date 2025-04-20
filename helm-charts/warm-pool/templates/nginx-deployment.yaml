@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gw-nginx-warm-pool
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: gw-nginx-warm-pool
+    version: "1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gw-nginx-warm-pool
+  template:
+    metadata:
+      labels:
+        app: gw-nginx-warm-pool
+        version: "1.0"
+    spec:
+      containers:
+      - name: gw-nginx-warm-pool
+        image: nginx
+        ports:
+        - name: http-nginx-wp
+          containerPort: 80
+        volumeMounts:
+        - mountPath: /etc/nginx/nginx.conf
+          readOnly: true
+          name: config-volume-warm-pool
+          subPath: nginx.conf
+        - mountPath: /var/log/nginx
+          name: log-warm-pool
+      schedulerName: default-scheduler
+      volumes:
+      - name: config-volume-warm-pool
+        configMap:
+          name: gw-nginx-warm-pool
+      - name: log-warm-pool
+        emptyDir: {}

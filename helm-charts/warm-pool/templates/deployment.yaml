@@ -1,28 +1,79 @@
+{{- range .Values.apps.sApps }}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: warm-pool
-  namespace: {{ .Values.namespace }}
+  name: {{ .name }}-warm-pool
+  namespace: {{ $.Values.namespace }}
+  labels:
+    app: {{ .name }}-warm-pool
 spec:
-  replicas: {{ .Values.replicaCount }}
+  replicas: {{ $.Values.replicaCount }}
   selector:
     matchLabels:
-      app: warm-pool
+      app: {{ .name }}-warm-pool
   template:
     metadata:
       labels:
-        app: warm-pool
+        app: {{ .name }}-warm-pool
+        prometheus.io/scrape: 'true'
+      annotations:
+        prometheus.io/scrape: 'true'
+        prometheus.io/port: '8080'
     spec:
+      terminationGracePeriodSeconds : 3
+      schedulerName: default-scheduler
       containers:
-        - name: {{ .Values.image.name }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+        - name: {{ .name }}-warm-pool
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+
           ports:
-            - containerPort: 8080
+            - name: http-mubpodp-wp
+              containerPort: 8080
+          volumeMounts:
+            - name: podinfo-warm-pool
+              mountPath: /etc/podinfo
+            - name: microservice-workmodel-warm-pool
+              mountPath: /app/MSConfig
+            - name: microservice-internal-services-warm-pool
+              mountPath: /app/MSConfig/InternalServiceFunctions
+          env:
+            - name: APP
+              value: {{ .name }}-warm-pool
+            - name: ZONE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['zone']
+            - name: K8S_APP
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['app']
+            - name: PN
+              value: '4'
+            - name: TN
+              value: '16'
           resources:
             requests:
-              memory: {{ .Values.resources.requests.memory }}
-              cpu: {{ .Values.resources.requests.cpu }}
+              memory: {{ $.Values.resources.requests.memory }}
+              cpu: {{ $.Values.resources.requests.cpu }}
             limits:
-              memory: {{ .Values.resources.limits.memory }}
-              cpu: {{ .Values.resources.limits.cpu }}
+              memory: {{ $.Values.resources.limits.memory }}
+              cpu: {{ $.Values.resources.limits.cpu }}
+
+      volumes:
+        - name: podinfo-warm-pool
+          downwardAPI:
+            items:
+              - path: "labels"
+                fieldRef:
+                  fieldPath: metadata.labels
+              - path: "annotations"
+                fieldRef:
+                  fieldPath: metadata.annotations
+        - name: microservice-workmodel-warm-pool
+          configMap:
+            name: workmodel-warm-pool
+        - name: microservice-internal-services-warm-pool
+          configMap:
+            name: internal-services-warm-pool
+{{- end }}

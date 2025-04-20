@@ -1,23 +1,40 @@
-replicaCount: 2
-
-image:
-  name: mubench
-  repository: msvcbench/mubench
-  tag: latest
-  pullPolicy: IfNotPresent
-
-resources:
-  requests:
-    memory: "64Mi"
-    cpu: "100m"
-  limits:
-    memory: "128Mi"
-    cpu: "250m"
+replicaCount: 1
 
 namespace: warm-pool
 
-ingress:
+image:
+  repository: msvcbench/microservice
+  tag: latest
+
+resources:
+  requests:
+    memory: "128Mi"
+    cpu: "50m"
+  limits:
+    memory: "256Mi"
+    cpu: "200m"
+    
+config:
   enabled: true
-  host: warm-pool.local
-  path: /
-  servicePort: 8080
+  data:
+    APP_ENV: "warm-pool"
+    LOG_LEVEL: "info"
+
+service:
+  type: NodePort
+
+apps:
+  enabled: true
+  sApps:
+    - name: s0
+    - name: s1
+    - name: s2
+    - name: s3
+    - name: s4
+    - name: s5
+    - name: s6
+    - name: s7
+    - name: s8
+    - name: s9
+
+monitoringNamespace: monitoring

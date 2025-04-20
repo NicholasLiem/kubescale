@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workmodel-warm-pool
+  namespace: {{ .Values.namespace }}
+data:
+  workmodel.json: |-
+{{ .Files.Get "files/workmodel-serial-10services.json" | indent 4 }}
