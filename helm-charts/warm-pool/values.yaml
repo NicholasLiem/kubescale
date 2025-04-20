@@ -13,7 +13,7 @@ resources:
   limits:
     memory: "256Mi"
     cpu: "200m"
-    
+
 config:
   enabled: true
   data:
@@ -29,12 +29,5 @@ apps:
     - name: s0
     - name: s1
     - name: s2
-    - name: s3
-    - name: s4
-    - name: s5
-    - name: s6
-    - name: s7
-    - name: s8
-    - name: s9
 
 monitoringNamespace: monitoring

@@ -1,4 +1,5 @@
 {{- range .Values.apps.sApps }}
+---
 apiVersion: v1
 kind: Service
 metadata:

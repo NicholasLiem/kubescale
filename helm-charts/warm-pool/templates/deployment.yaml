@@ -16,10 +16,10 @@ spec:
     metadata:
       labels:
         app: {{ .name }}-warm-pool
-        prometheus.io/scrape: 'true'
-      annotations:
-        prometheus.io/scrape: 'true'
-        prometheus.io/port: '8080'
+      #   prometheus.io/scrape: 'true'
+      # annotations:
+      #   prometheus.io/scrape: 'true'
+      #   prometheus.io/port: '8080'
     spec:
       terminationGracePeriodSeconds : 3
       schedulerName: default-scheduler
