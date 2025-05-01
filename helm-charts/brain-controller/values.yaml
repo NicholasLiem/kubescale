@@ -22,3 +22,8 @@ serviceAccount:
 rbac:
   roleName: brain-role
   roleBindingName: brain-rolebinding
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
