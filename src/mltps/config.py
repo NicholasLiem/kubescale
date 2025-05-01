@@ -1,7 +1,7 @@
 import os
 
 # Prometheus configuration
-PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus-kube-prometheus-prometheus.default.svc.cluster.local:9090")
+PROMETHEUS_URL = os.environ.get("PROMETHEUS_URL", "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090")
 
 # Brain controller configuration
 BRAIN_CONTROLLER_URL = os.environ.get("BRAIN_CONTROLLER_URL", "http://brain.kube-scale.svc.cluster.local:8080")

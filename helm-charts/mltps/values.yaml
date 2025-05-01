@@ -16,7 +16,7 @@ resources:
     cpu: "500m"
 
 config:
-  prometheusUrl: "http://prometheus-kube-prometheus-prometheus.default.svc.cluster.local:9090"
+  prometheusUrl: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
   brainControllerUrl: "http://brain.kube-scale.svc.cluster.local:8080"
   namespace: "default"
   predictionIntervalMinutes: 5

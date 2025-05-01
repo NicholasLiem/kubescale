@@ -96,6 +96,55 @@ def force_prediction():
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
 
+@app.route('/query-prometheus', methods=['POST'])
+def query_prometheus():
+    """Test endpoint to run arbitrary Prometheus queries"""
+    try:
+        data = request.json
+        if not data or 'query' not in data:
+            return jsonify({
+                "error": "Missing required field: 'query'",
+                "example": {
+                    "query": 'sum(rate(container_cpu_usage_seconds_total{namespace="default", pod=~"s[0-2].*|gw-nginx.*"}[5m])) by (pod)',
+                    "start_time": "optional timestamp in seconds",
+                    "end_time": "optional timestamp in seconds",
+                    "step": "optional step like 1m, 5m, etc."
+                }
+            }), 400
+            
+        query = data.get('query')
+        start_time = data.get('start_time')
+        end_time = data.get('end_time')
+        step = data.get('step', '1m')
+        
+        logger.info(f"Executing Prometheus query: {query}")
+        
+        result = metrics_service.get_prometheus_data(
+            query=query,
+            start_time=start_time,
+            end_time=end_time,
+            step=step
+        )
+        
+        # Convert raw data into a more readable format
+        formatted_data = []
+        for timestamp, value in result:
+            formatted_data.append({
+                "timestamp": timestamp,
+                "value": float(value),
+                "time": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(timestamp)))
+            })
+            
+        return jsonify({
+            "query": query,
+            "result_count": len(formatted_data),
+            "data": formatted_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error executing Prometheus query: {e}")
+        return jsonify({"error": str(e)}), 500
+
 def prediction_loop():
     """Background task to periodically make predictions"""
     while True:
