@@ -5,4 +5,4 @@ metadata:
   namespace: {{ .Values.namespace }}
 data:
   workmodel.json: |-
-{{ .Files.Get "files/workmodel-serial-10services.json" | indent 4 }}
+{{ .Files.Get "files/workmodel-serial-3services.json" | indent 4 }}

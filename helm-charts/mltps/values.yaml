@@ -23,3 +23,19 @@ config:
   predictionWindowSize: 12
   modelUpdateIntervalMinutes: 10
   confidenceThreshold: 0.7
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 5000
+  metricsPort: 8000
+
+livenessProbe:
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10
+
+readinessProbe:
+  path: /health
+  initialDelaySeconds: 30
+  periodSeconds: 10

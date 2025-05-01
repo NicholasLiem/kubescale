@@ -1,5 +1,4 @@
 replicaCount: 1
-
 namespace: kube-scale
 
 image:
@@ -18,12 +17,25 @@ resources:
 
 serviceAccount:
   name: brain-service-account
+  create: true
 
 rbac:
   roleName: brain-role
   roleBindingName: brain-rolebinding
+  create: true
 
 service:
+  name: brain-service
   type: ClusterIP
   port: 8080
   targetPort: 8080
+
+livenessProbe:
+  path: /healthz
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  path: /healthz
+  initialDelaySeconds: 5
+  periodSeconds: 10
