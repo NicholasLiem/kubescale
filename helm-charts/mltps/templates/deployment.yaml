@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+    spec:
+      containers:
+        - name: {{ .Values.name }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 5000
+              name: http
+            - containerPort: 8000
+              name: metrics
+          env:
+            - name: PROMETHEUS_URL
+              value: {{ .Values.config.prometheusUrl }}
+            - name: BRAIN_CONTROLLER_URL
+              value: {{ .Values.config.brainControllerUrl }}
+            - name: NAMESPACE
+              value: {{ .Values.config.namespace }}
+            - name: PREDICTION_INTERVAL_MINUTES
+              value: "{{ .Values.config.predictionIntervalMinutes }}"
+            - name: PREDICTION_WINDOW_SIZE
+              value: "{{ .Values.config.predictionWindowSize }}"
+            - name: MODEL_UPDATE_INTERVAL_MINUTES
+              value: "{{ .Values.config.modelUpdateIntervalMinutes }}"
+            - name: CONFIDENCE_THRESHOLD
+              value: "{{ .Values.config.confidenceThreshold }}"
+          resources:
+            requests:
+              memory: {{ .Values.resources.requests.memory }}
+              cpu: {{ .Values.resources.requests.cpu }}
+            limits:
+              memory: {{ .Values.resources.limits.memory }}
+              cpu: {{ .Values.resources.limits.cpu }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10

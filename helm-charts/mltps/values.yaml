@@ -1,0 +1,25 @@
+name: mltps
+namespace: kube-scale
+replicaCount: 1
+
+image:
+  repository: mltps
+  tag: latest
+  pullPolicy: IfNotPresent
+
+resources:
+  requests:
+    memory: "256Mi"
+    cpu: "100m"
+  limits:
+    memory: "512Mi"
+    cpu: "500m"
+
+config:
+  prometheusUrl: "http://prometheus-kube-prometheus-prometheus.default.svc.cluster.local:9090"
+  brainControllerUrl: "http://brain.kube-scale.svc.cluster.local:8080"
+  namespace: "default"
+  predictionIntervalMinutes: 5
+  predictionWindowSize: 12
+  modelUpdateIntervalMinutes: 10
+  confidenceThreshold: 0.7
