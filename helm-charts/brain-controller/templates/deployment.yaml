@@ -13,6 +13,7 @@ spec:
       labels:
         app: brain
     spec:
+      serviceAccountName: {{ .Values.serviceAccount.name }}
       containers:
         - name: {{ .Values.image.name }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

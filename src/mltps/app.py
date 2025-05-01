@@ -236,8 +236,8 @@ def force_prediction():
         scale_request = {
             "replica_count": scale_to,
             # TODO: Add logic to determine the deployment name and namespace dynamically
-            "deployment_name": "placeholder-deployment",
-            "namespace": NAMESPACE
+            "deployment_name": "s0-warm-pool",
+            "namespace": "warm-pool"
         }
         
         response = requests.post(

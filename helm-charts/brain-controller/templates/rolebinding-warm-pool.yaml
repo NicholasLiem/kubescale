@@ -1,11 +1,12 @@
+# Add role to warm-pool namespace
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: {{ .Values.rbac.roleBindingName }}
-  namespace: default
+  name: {{ .Values.rbac.roleBindingName }}-warm-pool
+  namespace: warm-pool
 subjects:
   - kind: ServiceAccount
-    name: default
+    name: {{ .Values.serviceAccount.name }}
     namespace: {{ .Values.namespace }}
 roleRef:
   kind: ClusterRole
