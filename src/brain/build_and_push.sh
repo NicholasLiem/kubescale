@@ -5,7 +5,7 @@ APP_NAME="brain"
 IMAGE_TAG="latest"
 NAMESPACE="kube-scale"
 HELM_RELEASE_NAME="brain"
-HELM_CHART_PATH="../../helm-charts/brain-controller"
+HELM_CHART_PATH="../../helm-charts/brain"
 
 # Point shell to Minikube's Docker daemon
 echo "Connecting to Minikube's Docker daemon..."
