@@ -61,7 +61,7 @@ class MetricsService:
             return {}
     
     def get_pod_metrics(self, namespace: str = "default", metric_type: str = "cpu", 
-                      window_minutes: int = 60, step: str = "1m") -> Dict:
+                      window_minutes: int = 30, step: str = "30s") -> Dict:
         """
         Get pod metrics from Prometheus
         
@@ -76,7 +76,7 @@ class MetricsService:
         """
         if metric_type == "cpu":
             query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}", ' \
-                    f'pod=~".*"}}[5m])) by (pod)'
+                    f'pod=~".*"}}[4m])) by (pod)'
         elif metric_type == "memory":
             query = f'sum(container_memory_usage_bytes{{namespace="{namespace}", pod=~".*"}}) by (pod)'
         else:
