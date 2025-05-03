@@ -19,28 +19,43 @@ data:
         '"$request_method '
         '$request_uri" '
         '$status -'
-        ' http:/$request_uri.{{ .Values.namespace }}.svc.cluster.local';
+        ' $upstream_addr';
 
         access_log  /etc/nginx/access.log main;
         #access_log  /var/log/nginx/access.log main;
         access_log on;
 
         server {
-                listen       80;
-                server_name  _;
-                location / {
-                    proxy_read_timeout 5m;
-                    proxy_connect_timeout 5m;
-                    proxy_send_timeout 5m;
-                    resolver 10.96.0.10;
-                    proxy_pass http:/$request_uri.{{ .Values.namespace }}.svc.cluster.local/api/v1;
-                    proxy_http_version 1.1;
-                }
-                location ~* /update$ {
-                    resolver 10.96.0.10;
-                    rewrite ^(/.*)/update$ /update break;
-                    proxy_pass http:/$1.{{ .Values.namespace }}.svc.cluster.local;
-                    proxy_http_version 1.1;
-                }
-        }
+          listen       80;
+          server_name  _;
+          
+          # Debug log for all incoming requests
+          location / {
+              add_header Content-Type text/plain;
+              return 200 'Request URI: $request_uri\nHost: $host\n';
+          }
+          
+          # Explicit handling for s0
+          location /s0 {
+              proxy_read_timeout 5m;
+              proxy_connect_timeout 5m;
+              proxy_send_timeout 5m;
+              resolver 10.96.0.10;
+              proxy_pass http://s0-warm-pool.{{ .Values.namespace }}.svc.cluster.local/api/v1;
+              proxy_http_version 1.1;
+          }
+          
+          # Your original regex-based routing
+          location ~ ^/([^/]+)(/.*)$ {
+              proxy_read_timeout 5m;
+              proxy_connect_timeout 5m;
+              proxy_send_timeout 5m;
+              resolver 10.96.0.10;
+              proxy_pass http://$1-warm-pool.{{ .Values.namespace }}.svc.cluster.local/api/v1$2;
+              proxy_http_version 1.1;
+              # Add debug headers
+              add_header X-Debug-TargetService "$1-warm-pool.{{ .Values.namespace }}.svc.cluster.local" always;
+              add_header X-Debug-TargetPath "/api/v1$2" always;
+          }
+      }
     }
