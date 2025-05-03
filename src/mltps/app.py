@@ -125,20 +125,10 @@ def query_prometheus():
             end_time=end_time,
             step=step
         )
-        
-        # Convert raw data into a more readable format
-        formatted_data = []
-        for timestamp, value in result:
-            formatted_data.append({
-                "timestamp": timestamp,
-                "value": float(value),
-                "time": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(timestamp)))
-            })
-            
+                    
         return jsonify({
             "query": query,
-            "result_count": len(formatted_data),
-            "data": formatted_data
+            "raw_data": result
         })
         
     except Exception as e:

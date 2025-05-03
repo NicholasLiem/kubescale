@@ -1,0 +1,12 @@
+# Core data processing and modeling
+numpy
+pandas
+statsmodels
+pmdarima>=1.8.5
+
+# Visualization
+matplotlib
+
+# Additional utilities
+scikit-learn
+pyyaml

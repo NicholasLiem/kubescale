@@ -1,0 +1,207 @@
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+from typing import Dict, Optional
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger('arima.data_transformer')
+
+class PrometheusDataTransformer:
+    """
+    Transforms raw Prometheus metrics data into formats suitable for ARIMA modeling.
+    """
+    
+    def __init__(self):
+        logger.info("Initializing PrometheusDataTransformer")
+    
+    def prometheus_to_dataframe(self, prometheus_data: Dict) -> pd.DataFrame:
+        """
+        Convert Prometheus query response to a pandas DataFrame with proper formatting
+        
+        Args:
+            prometheus_data: Raw Prometheus response JSON
+            
+        Returns:
+            DataFrame with timestamp index and columns for each metric/pod
+        """
+        if not prometheus_data or "data" not in prometheus_data or "result" not in prometheus_data["data"]:
+            logger.warning("Empty or invalid Prometheus data provided")
+            return pd.DataFrame()
+            
+        # Create an empty dictionary to store series for each pod/metric
+        series_dict = {}
+        
+        # Process each result (typically one per pod/metric)
+        for result in prometheus_data["data"]["result"]:
+            # Get the name/label for this series (using pod name if available)
+            if "metric" in result and "pod" in result["metric"]:
+                name = result["metric"]["pod"]
+            elif "metric" in result and "instance" in result["metric"]:
+                name = result["metric"]["instance"]
+            else:
+                name = str(result.get("metric", "unknown"))
+                
+            # Extract timestamp and value pairs
+            timestamps = []
+            values = []
+            
+            for point in result.get("values", []):
+                if len(point) >= 2:
+                    timestamps.append(pd.to_datetime(point[0], unit='s'))
+                    values.append(float(point[1]))
+                
+            # Create a series for this pod/metric
+            if timestamps and values:
+                series_dict[name] = pd.Series(values, index=timestamps)
+        
+        # Combine all series into a DataFrame
+        df = pd.DataFrame(series_dict)
+        logger.info(f"Converted Prometheus data to DataFrame with shape: {df.shape}")
+        
+        return df
+    
+    def prepare_for_arima(self, df: pd.DataFrame, 
+                         metric_type: str = "cpu", 
+                         resample_freq: str = '1min', 
+                         fillna_method: str = 'ffill', 
+                         pod_name: Optional[str] = None) -> pd.DataFrame:
+        """
+        Prepare metrics DataFrame for ARIMA modeling with appropriate unit conversion
+        
+        Args:
+            df: Input DataFrame with timestamp index
+            metric_type: Type of metric ('cpu' or 'memory')
+            resample_freq: Frequency to resample the time series
+            fillna_method: Method to fill missing values ('ffill', 'bfill', or numeric value)
+            pod_name: If provided, extract only this pod's data
+            
+        Returns:
+            Processed DataFrame ready for ARIMA modeling
+        """
+        if df.empty:
+            logger.warning("Empty DataFrame provided for ARIMA preparation")
+            return df
+            
+        # Make a copy to avoid modifying original
+        df_copy = df.copy()
+            
+        # Handle case where we want data for a specific pod only
+        if pod_name and pod_name in df_copy.columns:
+            logger.info(f"Extracting data for pod: {pod_name}")
+            df_copy = df_copy[[pod_name]]
+        
+        # Make sure index is datetime type
+        if not isinstance(df_copy.index, pd.DatetimeIndex):
+            logger.warning("DataFrame index is not DatetimeIndex, metrics processing may fail")
+            return df_copy
+            
+        # Resample to regular time intervals
+        logger.info(f"Resampling data to {resample_freq} frequency")
+        df_resampled = df_copy.resample(resample_freq).mean()
+        
+        # Fill missing values
+        if fillna_method == 'ffill':
+            df_processed = df_resampled.fillna(method='ffill')
+            # Fill any remaining NaNs at the beginning with backfill
+            df_processed = df_processed.fillna(method='bfill')
+        elif fillna_method == 'bfill':
+            df_processed = df_resampled.fillna(method='bfill')
+            # Fill any remaining NaNs at the end with forward fill
+            df_processed = df_processed.fillna(method='ffill')
+        else:
+            # Fill with a specific numeric value
+            try:
+                fill_value = float(fillna_method)
+                df_processed = df_resampled.fillna(fill_value)
+            except ValueError:
+                logger.error(f"Invalid fillna_method: {fillna_method}, using forward fill")
+                df_processed = df_resampled.fillna(method='ffill')
+                
+        # Apply unit conversions based on metric type
+        if metric_type == "memory":
+            # Convert memory from bytes to MB for better scale
+            for col in df_processed.columns:
+                df_processed[col] = df_processed[col] / (1024 * 1024)  # Convert to MB
+            logger.info(f"Converted memory values from bytes to MB for {len(df_processed.columns)} columns")
+        elif metric_type == "cpu":
+            # CPU values are already in core fractions, optionally convert to percentage 
+            for col in df_processed.columns:
+                df_processed[col] = df_processed[col] * 100  # Convert to percentage
+            logger.info(f"Converted CPU values from core fractions to percentages for {len(df_processed.columns)} columns")
+        
+        # Check for and handle any remaining NaNs
+        if df_processed.isna().any().any():
+            logger.warning("Some NaN values remain after filling, replacing with zeros")
+            df_processed = df_processed.fillna(0)
+            
+        return df_processed
+    
+    def normalize_data(self, df: pd.DataFrame, method: str = 'minmax') -> pd.DataFrame:
+        """
+        Normalize data for ML modeling
+        
+        Args:
+            df: Input DataFrame
+            method: Normalization method ('minmax', 'zscore')
+            
+        Returns:
+            Normalized DataFrame
+        """
+        if df.empty:
+            return df
+            
+        df_norm = pd.DataFrame(index=df.index)
+        
+        for col in df.columns:
+            if method == 'minmax':
+                # Min-Max normalization to [0, 1]
+                min_val = df[col].min()
+                max_val = df[col].max()
+                if max_val > min_val:  # Avoid division by zero
+                    df_norm[col] = (df[col] - min_val) / (max_val - min_val)
+                else:
+                    df_norm[col] = 0
+            elif method == 'zscore':
+                # Z-score normalization
+                mean = df[col].mean()
+                std = df[col].std()
+                if std > 0:  # Avoid division by zero
+                    df_norm[col] = (df[col] - mean) / std
+                else:
+                    df_norm[col] = 0
+            else:
+                logger.warning(f"Unknown normalization method: {method}, using original data")
+                df_norm[col] = df[col]
+                
+        logger.info(f"Normalized data using {method} method")
+        return df_norm
+    
+    def plot_time_series(self, df: pd.DataFrame, title: str = "Time Series Data", 
+                        figsize=(12, 6), save_path: Optional[str] = None):
+        """
+        Plot time series data for visualization
+        
+        Args:
+            df: DataFrame with time series data
+            title: Plot title
+            figsize: Figure size
+            save_path: If provided, save the plot to this path
+        """
+        plt.figure(figsize=figsize)
+        for column in df.columns:
+            plt.plot(df.index, df[column], label=column)
+            
+        plt.title(title)
+        plt.xlabel("Time")
+        plt.ylabel("Value")
+        plt.legend()
+        plt.grid(True)
+        
+        if save_path:
+            plt.savefig(save_path)
+            logger.info(f"Saved plot to {save_path}")
+        
+        plt.show()
