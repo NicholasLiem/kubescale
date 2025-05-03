@@ -8,9 +8,11 @@ image:
   pullPolicy: IfNotPresent
 
 resources:
+  # Minimum resource requests
   requests:
     memory: "256Mi"
     cpu: "100m"
+  # Maximum resource requests
   limits:
     memory: "512Mi"
     cpu: "500m"

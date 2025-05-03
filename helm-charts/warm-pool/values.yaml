@@ -7,9 +7,11 @@ image:
   tag: latest
 
 resources:
+  # Minimum resource requests
   requests:
     memory: "128Mi"
     cpu: "50m"
+  # Maximum resource requests
   limits:
     memory: "256Mi"
     cpu: "200m"
