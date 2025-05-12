@@ -2,5 +2,3 @@ kubeconfig
 .DS_STORE
 __pycache__
 venv
-
-SimulationWorkspace/

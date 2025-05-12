@@ -42,7 +42,9 @@
     "url": "s0.default.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
-    "namespace": "default"
+    "namespace": "default",
+    "memory-limits": "1Gi",
+    "cpu-limits": "1"
   },
   "s1": {
     "external_services": [
@@ -88,7 +90,9 @@
     "url": "s1.default.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
-    "namespace": "default"
+    "namespace": "default",
+    "memory-limits": "1Gi",
+    "cpu-limits": "1"
   },
   "s2": {
     "external_services": [
@@ -134,6 +138,8 @@
     "url": "s2.default.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
-    "namespace": "default"
+    "namespace": "default",
+    "memory-limits": "1Gi",
+    "cpu-limits": "1"
   }
 }

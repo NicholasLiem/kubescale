@@ -42,7 +42,9 @@
     "url": "s0-warm-pool.warm-pool.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
-    "namespace": "warm-pool"
+    "namespace": "warm-pool",
+    "memory-limits": "500Mi",
+    "cpu-limits": "500m"
   },
   "s1-warm-pool": {
     "external_services": [
@@ -88,7 +90,9 @@
     "url": "s1-warm-pool.warm-pool.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
-    "namespace": "warm-pool"
+    "namespace": "warm-pool",
+    "memory-limits": "500Mi",
+    "cpu-limits": "500m"
   },
   "s2-warm-pool": {
     "external_services": [
@@ -134,6 +138,8 @@
     "url": "s2-warm-pool.warm-pool.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
-    "namespace": "warm-pool"
+    "namespace": "warm-pool",
+    "memory-limits": "500Mi",
+    "cpu-limits": "500m"
   }
 }
