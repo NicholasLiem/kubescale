@@ -1,0 +1,46 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gw-nginx
+  namespace: {{NAMESPACE}}
+data:
+  nginx.conf: |
+    user nginx;
+    worker_processes  1;
+    error_log  /etc/nginx/error.log;
+    events {
+      worker_connections  10240;
+    }
+    http {
+        log_format  main
+        '[GATEWAY] - '
+        '$remote_addr - - '
+        '[$time_local] '
+        '"$request_method '
+        '$request_uri" '
+        '$status -'
+        ' http:/$request_uri.{{NAMESPACE}}.svc.cluster.local';
+
+        access_log  /etc/nginx/access.log main;
+        #access_log  /var/log/nginx/access.log main;
+        access_log on;
+
+        server {
+                listen       80;
+                server_name  _;
+                location / {
+                    proxy_read_timeout 5m;
+                    proxy_connect_timeout 5m;
+                    proxy_send_timeout 5m;
+                    resolver {{RESOLVER}};
+                    proxy_pass http:/$request_uri.{{NAMESPACE}}.svc.cluster.local{{PATH}};
+                    proxy_http_version 1.1;
+                }
+                location ~* /update$ {
+                    resolver {{RESOLVER}};
+                    rewrite ^(/.*)/update$ /update break;
+                    proxy_pass http:/$1.{{NAMESPACE}}.svc.cluster.local;
+                    proxy_http_version 1.1;
+                }
+        }
+    }
