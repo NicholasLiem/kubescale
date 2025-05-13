@@ -1,8 +1,7 @@
 import requests
 import time
 import logging
-import pandas as pd
-from typing import List, Dict, Any, Optional
+from typing import Dict, Optional
 
 logger = logging.getLogger("mltps")
 
@@ -61,7 +60,7 @@ class MetricsService:
             return {}
     
     def get_pod_metrics(self, namespace: str = "default", metric_type: str = "cpu", 
-                      window_minutes: int = 30, step: str = "30s") -> Dict:
+                      window_minutes: int = 10, step: str = "1m") -> Dict:
         """
         Get pod metrics from Prometheus
         
@@ -76,7 +75,7 @@ class MetricsService:
         """
         if metric_type == "cpu":
             query = f'sum(rate(container_cpu_usage_seconds_total{{namespace="{namespace}", ' \
-                    f'pod=~".*"}}[4m])) by (pod)'
+                    f'pod=~".*"}}[10m])) by (pod)'
         elif metric_type == "memory":
             query = f'sum(container_memory_usage_bytes{{namespace="{namespace}", pod=~".*"}}) by (pod)'
         else:
@@ -89,24 +88,7 @@ class MetricsService:
             end_time=time.time(),
             step=step
         )
-    
-    def get_request_rate_data(self, namespace="default", window_minutes=60) -> Dict:
-        """
-        Get HTTP request rate data from Prometheus
         
-        Args:
-            namespace: Kubernetes namespace
-            window_minutes: Time window in minutes
-            
-        Returns:
-            Raw Prometheus metrics data for HTTP requests
-        """
-        query = f'sum(rate(http_requests_total{{namespace="{namespace}"}}[5m]))'
-        return self.get_prometheus_data(
-            query,
-            start_time=time.time() - (window_minutes * 60)
-        )
-    
     def get_pod_health_data(self, namespace: str, pod_name: Optional[str] = None, 
                           time_window_minutes: int = 10) -> Dict:
         """

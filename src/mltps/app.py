@@ -1,7 +1,7 @@
+import os
 from flask import Flask, request, jsonify
 import time
 import threading
-from prometheus_client import Gauge, start_http_server
 
 from config import (
     PROMETHEUS_URL,
@@ -23,11 +23,6 @@ logger = setup_logging()
 # Initialize Flask app
 app = Flask(__name__)
 
-# Initialize metrics for Prometheus export
-traffic_prediction = Gauge('mltps_traffic_prediction', 'Predicted request rate')
-prediction_confidence = Gauge('mltps_prediction_confidence', 'Confidence in traffic prediction')
-model_accuracy = Gauge('mltps_model_accuracy', 'ARIMA model accuracy')
-
 # Initialize services
 metrics_service = MetricsService(PROMETHEUS_URL)
 prediction_service = PredictionService(
@@ -43,20 +38,10 @@ notification_service = NotificationService(BRAIN_CONTROLLER_URL, NAMESPACE)
 def health():
     return jsonify({"status": "ok"})
 
-@app.route('/metrics', methods=['GET'])
-def metrics():
-    # Prometheus metrics endpoint is handled by prometheus_client
-    return "Use the /metrics endpoint provided by prometheus_client"
-
 @app.route('/predict', methods=['GET'])
 def predict():
     prediction_service.update_model()
     forecast, confidence = prediction_service.predict_traffic()
-    
-    # Export metrics to Prometheus
-    if forecast is not None:
-        traffic_prediction.set(float(forecast.max()))
-        prediction_confidence.set(confidence)
     
     spike_detected, predicted_value, time_to_spike = prediction_service.detect_spike()
     
@@ -73,6 +58,9 @@ def predict():
         "time_to_spike_minutes": time_to_spike
     })
 
+#
+# BELOW are test endpoints for local testing
+# 
 @app.route('/force-prediction', methods=['POST'])
 def force_prediction():
     """Force a prediction and notify brain controller (for testing)"""
@@ -142,11 +130,6 @@ def prediction_loop():
             prediction_service.update_model()
             forecast, confidence = prediction_service.predict_traffic()
             
-            # Update Prometheus metrics
-            if forecast is not None:
-                traffic_prediction.set(float(forecast.max()))
-                prediction_confidence.set(confidence)
-            
             spike_detected, predicted_value, time_to_spike = prediction_service.detect_spike()
             
             if spike_detected:
@@ -159,9 +142,7 @@ def prediction_loop():
             
         time.sleep(PREDICTION_INTERVAL_MINUTES * 60)
 
-if __name__ == '__main__':
-    start_http_server(8000)
-    
+if __name__ == '__main__':    
     # Start background prediction task
     prediction_thread = threading.Thread(target=prediction_loop, daemon=True)
     prediction_thread.start()
