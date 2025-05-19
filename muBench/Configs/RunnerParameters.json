@@ -2,10 +2,15 @@
    "RunnerParameters":{
       "ms_access_gateway": "http://127.0.0.1:80",
       "workload_files_path_list": ["SimulationWorkspace/workload.json"],
+      "thread_pool_size": 32,
       "workload_rounds": 1,
-      "workload_type": "greedy",
+      "debug_logging": true,
+      "workload_type": "periodic",
+      "rate": 0.5,
       "workload_events": 5000,
-      "thread_pool_size": 4,
+      "spike_interval": 300,
+      "spike_multiplier": 15,
+      "spike_duration": 60,
       "result_file": "result"
    },
    "OutputPath": "SimulationWorkspace/Result",

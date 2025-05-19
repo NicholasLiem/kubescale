@@ -36,7 +36,7 @@ class Counter(object):
 
 
 def do_requests(event, stats, local_latency_stats):
-    global processed_requests, last_print_time_ms, error_requests, pending_requests
+    global processed_requests, last_print_time_ms, error_requests, pending_requests, is_in_spike
     # pprint(workload[event]["services"])
     # for services in event["services"]:
         # print(services)
@@ -58,7 +58,13 @@ def do_requests(event, stats, local_latency_stats):
         local_latency_stats.append(req_latency_ms)
         
         if now_ms > last_print_time_ms + 1_000:
-            print(f"Processed request {processed_requests.value}, latency {req_latency_ms}, pending requests {pending_requests.value} \n")
+            # Enhanced logging with more visible spike indicator
+            if is_in_spike:
+                spike_indicator = "🔥 SPIKE MODE 🔥"
+                print(f"[{spike_indicator}] Processed request {processed_requests.value}, latency {req_latency_ms} ms, pending requests {pending_requests.value}, status code {r.status_code}")
+            else:
+                spike_indicator = "BASELINE"
+                print(f"[{spike_indicator}] Processed request {processed_requests.value}, latency {req_latency_ms} ms, pending requests {pending_requests.value}")
             last_print_time_ms = now_ms
         return event['time'], req_latency_ms
     except Exception as err:
@@ -66,19 +72,24 @@ def do_requests(event, stats, local_latency_stats):
 
 
 def job_assignment(v_pool, v_futures, event, stats, local_latency_stats):
-    global timing_error_requests, pending_requests
+    global timing_error_requests, pending_requests, is_in_spike
     try:
         worker = v_pool.submit(do_requests, event, stats, local_latency_stats)
         v_futures.append(worker)
         if runner_type!="greedy":
             pending_requests.increase()
+        
+        active_threads = len([f for f in v_futures if not f.done()])
         if pending_requests.value > threads: 
             # maximum capacity of thread pool reached, request is queued (not an issue for greedy runner)
             if runner_type!="greedy":
                 timing_error_requests += 1
+                # Enhanced error message with spike indicator
+                spike_indicator = "🔥 DURING SPIKE 🔥" if is_in_spike else ""
+                print(f"Error: All Pool Threads are busy. {spike_indicator} Active threads: {active_threads}/{threads}. It's impossible to respect the requests timing! :(")
                 raise TimingError(event['time'])
     except TimingError as err:
-        print("Error: %s" % err)
+        pass  # Error message already printed above
 
 def file_runner(workload=None):
     global start_time, stats, local_latency_stats
@@ -179,7 +190,10 @@ def greedy_runner():
         run_after_workload(args)
 
 def periodic_runner():
-    global start_time, stats, local_latency_stats, runner_parameters
+    global start_time, stats, local_latency_stats, runner_parameters, is_in_spike
+
+    # Initialize the global spike indicator
+    is_in_spike = False
 
     if 'rate' in runner_parameters.keys():
         rate=runner_parameters['rate']
@@ -190,21 +204,118 @@ def periodic_runner():
         srv=runner_parameters['ingress_service']
     else:
         srv = 's0'
+
+    if 'spike_interval' in runner_parameters.keys():
+        spike_interval = runner_parameters['spike_interval']  # seconds between spikes
+    else:
+        spike_interval = 30
+    
+    if 'spike_multiplier' in runner_parameters.keys():
+        spike_multiplier = runner_parameters['spike_multiplier']  # how much to multiply the rate during spike
+    else:
+        spike_multiplier = 5
+        
+    if 'spike_duration' in runner_parameters.keys():
+        spike_duration = runner_parameters['spike_duration']  # how long spike lasts in seconds
+    else:
+        spike_duration = 5
+    
+    if 'ingress_service' in runner_parameters.keys():
+        srv=runner_parameters['ingress_service']
+    else:
+        srv = 's0'
+    
+    if 'debug_logging' in runner_parameters.keys():
+        debug_logging = runner_parameters['debug_logging']
+    else:
+        debug_logging = True
     
     stats = list()
     print("###############################################")
     print("############   Run Forrest Run!!   ############")
     print("###############################################")
+    print(f"Base rate: {rate} req/sec, Spike rate: {rate * spike_multiplier} req/sec")
+    print(f"Spike interval: {spike_interval}s, Spike duration: {spike_duration}s")
+    print(f"Thread pool size: {threads}")
     
     s = sched.scheduler(time.time, time.sleep)
     pool = ThreadPoolExecutor(threads)
     futures = list()
     event={'service':srv,'time':0}
     offset=10 # initial delay to allow the insertion of events in the event list
-    for i in range(workload_events):
-        event_time =  offset + i * 1.0/rate
+    
+    # Track spike status for logging
+    last_spike_state = False
+    active_threads = 0
+    last_status_time = time.time()
+    status_interval = 5  # Log status every 5 seconds
+    
+    time_counter = 0
+    i = 0
+    while i < workload_events:
+        # Determine current rate based on whether we're in a spike period
+        current_time = offset + time_counter
+        is_spike_period = (current_time % spike_interval) < spike_duration
+        
+        # Log spike transitions with enhanced visibility
+        if debug_logging and is_spike_period != last_spike_state:
+            is_in_spike = is_spike_period  # Update global spike indicator
+            if is_spike_period:
+                print("\n" + "="*60)
+                print(f"🔥 SPIKE STARTING at {current_time:.2f}s 🔥")
+                print(f"Rate increasing from {rate} req/sec to {rate * spike_multiplier} req/sec")
+                print(f"Expected duration: {spike_duration} seconds")
+                print("="*60 + "\n")
+            else:
+                print("\n" + "="*60)
+                print(f"✓ SPIKE ENDING at {current_time:.2f}s")
+                print(f"Rate returning to {rate} req/sec")
+                print(f"Next spike in {spike_interval - spike_duration} seconds")
+                print("="*60 + "\n")
+            last_spike_state = is_spike_period
+        
+        # Enhanced periodic status logging
+        now = time.time()
+        if debug_logging and now - last_status_time > status_interval:
+            active_threads = len([f for f in futures if not f.done()])
+            thread_usage_pct = (active_threads / threads) * 100
+            status_prefix = "🔥 SPIKE STATUS" if is_spike_period else "BASELINE STATUS"
+            
+            # Add more detailed information about spike timing
+            if is_spike_period:
+                time_into_spike = current_time % spike_interval
+                time_remaining = spike_duration - time_into_spike
+                timing_info = f"Spike time remaining: {time_remaining:.1f}s"
+            else:
+                time_since_last_spike = (current_time % spike_interval) - spike_duration
+                if time_since_last_spike < 0:
+                    time_since_last_spike = current_time % spike_interval
+                time_to_next_spike = spike_interval - (current_time % spike_interval)
+                timing_info = f"Next spike in: {time_to_next_spike:.1f}s"
+            
+            print(f"[{status_prefix}] Time: {current_time:.2f}s, {timing_info}")
+            print(f"  → Active threads: {active_threads}/{threads} ({thread_usage_pct:.1f}%)")
+            print(f"  → Completed: {i}/{workload_events} requests ({(i/workload_events)*100:.1f}%)")
+            
+            if active_threads > threads * 0.8:
+                print(f"  ⚠️  WARNING: Thread pool usage high ({thread_usage_pct:.1f}%)")
+            
+            last_status_time = now
+        
+        current_rate = rate * spike_multiplier if is_spike_period else rate
+        
+        # Schedule the request
+        event_time = current_time
         s.enter(event_time, 1, job_assignment, argument=(pool, futures, event, stats, local_latency_stats))
+        
+        # Calculate next request timing based on current rate
+        time_counter += 1.0/current_rate
+        i += 1
 
+    # Add final debug message
+    if debug_logging:
+        print(f"\n[DEBUG] All {workload_events} events scheduled. Execution will now start.")
+    
     start_time = time.time()
     print("Start Time:", datetime.now().strftime("%H:%M:%S.%f - %g/%m/%Y"))
     s.run()
@@ -256,6 +367,7 @@ last_print_time_ms = 0
 run_after_workload = None
 timing_error_requests = 0
 processed_requests = Counter()
+is_in_spike = False  # Global flag to track if we're currently in a spike period
 error_requests = Counter()
 pending_requests = Counter()
 

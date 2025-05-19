@@ -18,7 +18,7 @@
           "trials": 33
         },
         "memory_stress": {
-          "run": false,
+          "run": true,
           "memory_size": 10000,
           "memory_io": 1000
         },
@@ -66,7 +66,7 @@
           "trials": 33
         },
         "memory_stress": {
-          "run": false,
+          "run": true,
           "memory_size": 10000,
           "memory_io": 1000
         },
@@ -114,7 +114,7 @@
           "trials": 33
         },
         "memory_stress": {
-          "run": false,
+          "run": true,
           "memory_size": 10000,
           "memory_io": 1000
         },

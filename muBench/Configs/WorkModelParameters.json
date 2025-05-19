@@ -10,8 +10,8 @@
                "mean_response_size":10,
                "range_complexity":[50, 100]
             },
-            "workers":4,
-            "threads":16,
+            "workers": 8,
+            "threads": 32,
             "cpu-requests": "1000m",
             "cpu-limits": "1000m"
          }
@@ -23,8 +23,8 @@
             "recipient": "service",
             "probability": 0.0,
             "parameters":{},
-            "workers":4,
-            "threads":16,
+            "workers": 8,
+            "threads": 32,
             "cpu-requests": "1000m",
             "cpu-limits": "1000m"
          }
@@ -42,8 +42,8 @@
                "sleep_stress":{"run":false, "sleep_time":  0.01},
                "mean_response_size": 11
             },
-            "workers":4,
-            "threads":16,
+            "workers": 8,
+            "threads": 32,
             "cpu-requests": "1000m",
             "cpu-limits": "1000m"
          }
@@ -61,8 +61,8 @@
                "sleep_stress":{"run":false, "sleep_time":  0.01},
                "mean_response_size": 11
             },
-            "workers":4,
-            "threads":16,
+            "workers": 8,
+            "threads": 32,
             "cpu-requests": "1000m",
             "cpu-limits": "1000m",
             "replicas": 2
