@@ -55,10 +55,11 @@ class MetricsTransformerService:
         return df
     
     def prepare_for_arima(self, df: pd.DataFrame, 
-                         metric_type: str = "cpu", 
-                         resample_freq: str = '1min', 
-                         fillna_method: str = 'ffill', 
-                         pod_name: Optional[str] = None) -> pd.DataFrame:
+                     metric_type: str = "cpu", 
+                     resample_freq: str = '1min', 
+                     fillna_method: str = 'ffill', 
+                     pod_name: Optional[str] = None,
+                     aggregate: bool = False) -> pd.DataFrame:
         """
         Prepare metrics DataFrame for ARIMA modeling with appropriate unit conversion
         
@@ -68,6 +69,7 @@ class MetricsTransformerService:
             resample_freq: Frequency to resample the time series
             fillna_method: Method to fill missing values ('ffill', 'bfill', or numeric value)
             pod_name: If provided, extract only this pod's data
+            aggregate: If True, aggregate all pod metrics into a single 'total' column
             
         Returns:
             Processed DataFrame ready for ARIMA modeling
@@ -112,7 +114,7 @@ class MetricsTransformerService:
             for col in df_processed.columns:
                 df_processed[col] = df_processed[col] / (1024 * 1024)  # Convert to MB
             logger.info(f"Converted memory values from bytes to MB for {len(df_processed.columns)} pods")
-        elif metric_type == "cpu":
+        elif metric_type == "cpu" or metric_type == "cpu_usage":
             # CPU values are already in core fractions, optionally convert to percentage 
             for col in df_processed.columns:
                 df_processed[col] = df_processed[col] * 100  # Convert to percentage
@@ -122,7 +124,14 @@ class MetricsTransformerService:
         if df_processed.isna().any().any():
             logger.warning("Some NaN values remain after filling, replacing with zeros")
             df_processed = df_processed.fillna(0)
-            
+        
+        # Aggregate if requested
+        if aggregate and len(df_processed.columns) > 0:
+            # Sum across all pods and create a single 'total' column
+            total_series = df_processed.sum(axis=1)
+            df_processed = pd.DataFrame({'total': total_series}, index=df_processed.index)
+            logger.info(f"Aggregated metrics from {len(df.columns)} pods into a single 'total' column")
+                
         return df_processed
     
     def detect_anomalies(self, df: pd.DataFrame, window: int = 10, threshold: float = 2.0) -> pd.DataFrame:

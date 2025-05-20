@@ -1,104 +1,117 @@
-import pandas as pd
 import numpy as np
-from statsmodels.tsa.arima.model import ARIMA
-from typing import List, Dict, Any, Tuple, Optional
+import pandas as pd
 import logging
+from statsmodels.tsa.arima.model import ARIMA
+from typing import Tuple, List, Optional, Union
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("mltps")
 
 class ARIMAModel:
-    def __init__(self, order=(5,1,0)):
+    """ARIMA time series forecasting model"""
+    
+    def __init__(self, order=(5, 1, 0)):
         """
-        Initialize ARIMA model with specified order.
+        Initialize ARIMA model
         
         Args:
-            order: ARIMA order tuple (p,d,q)
-                p: The number of lag observations
-                d: The degree of differencing
-                q: The size of the moving average window
+            order: ARIMA model order (p, d, q)
         """
         self.order = order
         self.model = None
-        self.history = []
         self.is_trained = False
+        self.data = []  # Store training data
         
-    def train(self, time_series_data: List[float]) -> None:
+    def train(self, data):
         """
-        Train the ARIMA model with historical time series data.
+        Train the ARIMA model with time series data
         
         Args:
-            time_series_data: List of historical values
+            data: Time series data for training
         """
-        if len(time_series_data) < 10:  # Need minimum data points
-            logger.warning(f"Insufficient data for ARIMA training: {len(time_series_data)} points")
-            return
+        if len(data) == 0:
+            logger.error("Empty data provided for ARIMA training")
+            return False
             
+        # Store data for future updates
+        self.data = list(data)  # Convert to list to ensure it's appendable
+        
         try:
-            # Convert to pandas Series for ARIMA
-            ts = pd.Series(time_series_data)
-            
-            # Fit the model
-            self.model = ARIMA(ts, order=self.order).fit()
-            self.history = time_series_data.copy()
+            self.model = ARIMA(self.data, order=self.order).fit()
             self.is_trained = True
-            logger.info(f"ARIMA model trained with {len(time_series_data)} data points")
+            logger.info(f"ARIMA model trained with {len(data)} data points")
+            return True
         except Exception as e:
             logger.error(f"Error training ARIMA model: {e}")
-            self.is_trained = False
-            
-    def predict(self, steps=10, confidence_interval=0.95) -> Tuple[List[float], List[Tuple[float, float]], float]:
+            try:
+                # Try alternative model if original fails
+                alt_order = (2, 1, 0)
+                logger.info(f"Trying alternative ARIMA order: {alt_order}")
+                self.model = ARIMA(self.data, order=alt_order).fit()
+                self.order = alt_order
+                self.is_trained = True
+                logger.info(f"ARIMA model trained with alternative order")
+                return True
+            except Exception as e2:
+                logger.error(f"All ARIMA model attempts failed: {e2}")
+                self.is_trained = False
+                return False
+    
+    def update(self, new_value):
         """
-        Generate predictions for future values.
+        Update the model with a new observation
         
         Args:
-            steps: Number of steps ahead to predict
-            confidence_interval: Confidence level for prediction intervals
+            new_value: New observation to add to the model
+        """
+        if self.model is None:
+            logger.error("Model must be trained before updating")
+            return False
+        
+        # Append the new value to the data
+        self.data.append(new_value)
+        
+        # Retrain the model with the updated data
+        try:
+            self.model = ARIMA(self.data, order=self.order).fit()
+            logger.debug(f"ARIMA model updated with new value: {new_value}")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating ARIMA model: {e}")
+            return False
+    
+    def predict(self, steps=10) -> Tuple[np.ndarray, np.ndarray, float]:
+        """
+        Make predictions with the trained model
+        
+        Args:
+            steps: Number of steps to forecast
             
         Returns:
-            Tuple containing:
-                - List of predicted values
-                - List of confidence intervals as (lower, upper) tuples
-                - Model confidence score
+            Tuple of (forecast values, confidence intervals, confidence score)
         """
         if not self.is_trained or self.model is None:
-            logger.warning("Cannot predict: model not trained")
-            return [], [], 0.0
+            logger.error("Model must be trained before predicting")
+            return np.array([]), np.array([]), 0.0
             
         try:
-            # Make forecasts
-            forecast_result = self.model.get_forecast(steps=steps)
-            predicted_mean = forecast_result.predicted_mean.tolist()
+            # Get forecast
+            forecast_result = self.model.forecast(steps=steps)
             
-            # Get confidence intervals
-            conf_int = forecast_result.conf_int(alpha=1-confidence_interval)
-            confidence_intervals = [(lower, upper) for lower, upper in zip(conf_int.iloc[:, 0], conf_int.iloc[:, 1])]
+            # Get confidence intervals (alpha=0.05 for 95% confidence)
+            pred = self.model.get_forecast(steps=steps)
+            conf_int = pred.conf_int(alpha=0.05)
             
-            # Calculate a simple confidence score based on the width of the prediction intervals
-            # Narrower intervals suggest higher confidence
-            conf_widths = [upper - lower for lower, upper in confidence_intervals]
-            avg_width = np.mean(conf_widths)
-            max_value = max(abs(max(predicted_mean)), abs(min(predicted_mean))) 
-            if max_value == 0:
-                confidence_score = 0.5
-            else:
-                # Normalize to 0-1 range (closer to 1 is better)
-                confidence_score = max(0, min(1, 1 - (avg_width / (2 * max_value))))
+            # Convert to arrays
+            forecast = np.array(forecast_result)
+            intervals = np.array(conf_int)
             
-            return predicted_mean, confidence_intervals, confidence_score
+            # Calculate crude confidence score based on interval width
+            interval_width = np.mean(intervals[:, 1] - intervals[:, 0])
+            mean_value = np.mean(np.abs(forecast))
+            confidence_score = 1.0 - min(1.0, (interval_width / (mean_value * 2 + 1e-10)))
+            
+            return forecast, intervals, confidence_score
             
         except Exception as e:
-            logger.error(f"Error making ARIMA prediction: {e}")
-            return [], [], 0.0
-            
-    def update(self, new_data_point: float) -> None:
-        """
-        Update the model with a new data point.
-        
-        Args:
-            new_data_point: The new observation to add to the model
-        """
-        self.history.append(new_data_point)
-        
-        # Periodically retrain the model with updated data
-        if len(self.history) % 10 == 0:  # Retrain every 10 new data points
-            self.train(self.history[-100:] if len(self.history) > 100 else self.history)
+            logger.error(f"Error making ARIMA predictions: {e}")
+            return np.array([]), np.array([]), 0.0

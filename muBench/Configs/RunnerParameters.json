@@ -7,6 +7,7 @@
       "debug_logging": true,
       "workload_type": "periodic",
       "rate": 0.5,
+      "minutes_to_train": 5,
       "workload_events": 5000,
       "spike_interval": 300,
       "spike_multiplier": 15,

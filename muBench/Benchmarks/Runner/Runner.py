@@ -58,13 +58,7 @@ def do_requests(event, stats, local_latency_stats):
         local_latency_stats.append(req_latency_ms)
         
         if now_ms > last_print_time_ms + 1_000:
-            # Enhanced logging with more visible spike indicator
-            if is_in_spike:
-                spike_indicator = "🔥 SPIKE MODE 🔥"
-                print(f"[{spike_indicator}] Processed request {processed_requests.value}, latency {req_latency_ms} ms, pending requests {pending_requests.value}, status code {r.status_code}")
-            else:
-                spike_indicator = "BASELINE"
-                print(f"[{spike_indicator}] Processed request {processed_requests.value}, latency {req_latency_ms} ms, pending requests {pending_requests.value}")
+            print(f"Processed request {processed_requests.value}, latency {req_latency_ms} ms, pending requests {pending_requests.value}, status code {r.status_code}")
             last_print_time_ms = now_ms
         return event['time'], req_latency_ms
     except Exception as err:
@@ -205,6 +199,11 @@ def periodic_runner():
     else:
         srv = 's0'
 
+    if 'minutes_to_train' in runner_parameters.keys():
+        minutes_to_train = runner_parameters['minutes_to_train']  # minutes to run normal traffic before spikes
+    else:
+        minutes_to_train = 0
+        
     if 'spike_interval' in runner_parameters.keys():
         spike_interval = runner_parameters['spike_interval']  # seconds between spikes
     else:
@@ -220,11 +219,6 @@ def periodic_runner():
     else:
         spike_duration = 5
     
-    if 'ingress_service' in runner_parameters.keys():
-        srv=runner_parameters['ingress_service']
-    else:
-        srv = 's0'
-    
     if 'debug_logging' in runner_parameters.keys():
         debug_logging = runner_parameters['debug_logging']
     else:
@@ -234,6 +228,13 @@ def periodic_runner():
     print("###############################################")
     print("############   Run Forrest Run!!   ############")
     print("###############################################")
+    
+    # Convert minutes_to_train to seconds
+    seconds_to_train = minutes_to_train * 60
+    
+    if minutes_to_train > 0:
+        print(f"Training phase: {minutes_to_train} minutes ({seconds_to_train} seconds) at baseline rate: {rate} req/sec")
+    
     print(f"Base rate: {rate} req/sec, Spike rate: {rate * spike_multiplier} req/sec")
     print(f"Spike interval: {spike_interval}s, Spike duration: {spike_duration}s")
     print(f"Thread pool size: {threads}")
@@ -253,12 +254,34 @@ def periodic_runner():
     time_counter = 0
     i = 0
     while i < workload_events:
-        # Determine current rate based on whether we're in a spike period
+        # Determine current time and whether we're still in training phase
         current_time = offset + time_counter
-        is_spike_period = (current_time % spike_interval) < spike_duration
+        in_training_phase = current_time < (offset + seconds_to_train)
         
-        # Log spike transitions with enhanced visibility
-        if debug_logging and is_spike_period != last_spike_state:
+        # Determine if we're in a spike period (only after training phase)
+        is_spike_period = False if in_training_phase else ((current_time - seconds_to_train) % spike_interval) < spike_duration
+        
+        # Log training phase status
+        if debug_logging and in_training_phase and last_spike_state != in_training_phase:
+            print("\n" + "="*60)
+            print(f"🔬 TRAINING PHASE STARTED at {current_time:.2f}s 🔬")
+            print(f"Running at baseline rate: {rate} req/sec")
+            print(f"Training duration: {minutes_to_train} minutes ({seconds_to_train} seconds)")
+            print("="*60 + "\n")
+            last_spike_state = in_training_phase
+            is_in_spike = False
+        
+        # Log transition from training to spike pattern
+        if debug_logging and not in_training_phase and last_spike_state and not is_spike_period:
+            print("\n" + "="*60)
+            print(f"🔬 TRAINING PHASE COMPLETED at {current_time:.2f}s 🔬")
+            print(f"Switching to spike pattern mode")
+            print(f"First spike will start soon")
+            print("="*60 + "\n")
+            last_spike_state = False
+        
+        # Log spike transitions with enhanced visibility (after training phase)
+        if not in_training_phase and debug_logging and is_spike_period != last_spike_state:
             is_in_spike = is_spike_period  # Update global spike indicator
             if is_spike_period:
                 print("\n" + "="*60)
@@ -279,19 +302,23 @@ def periodic_runner():
         if debug_logging and now - last_status_time > status_interval:
             active_threads = len([f for f in futures if not f.done()])
             thread_usage_pct = (active_threads / threads) * 100
-            status_prefix = "🔥 SPIKE STATUS" if is_spike_period else "BASELINE STATUS"
             
-            # Add more detailed information about spike timing
-            if is_spike_period:
-                time_into_spike = current_time % spike_interval
-                time_remaining = spike_duration - time_into_spike
-                timing_info = f"Spike time remaining: {time_remaining:.1f}s"
+            if in_training_phase:
+                status_prefix = "🔬 TRAINING"
+                training_remaining = seconds_to_train - (current_time - offset)
+                timing_info = f"Training remaining: {training_remaining:.1f}s ({training_remaining/60:.1f} min)"
             else:
-                time_since_last_spike = (current_time % spike_interval) - spike_duration
-                if time_since_last_spike < 0:
-                    time_since_last_spike = current_time % spike_interval
-                time_to_next_spike = spike_interval - (current_time % spike_interval)
-                timing_info = f"Next spike in: {time_to_next_spike:.1f}s"
+                status_prefix = "🔥 SPIKE STATUS" if is_spike_period else "BASELINE STATUS"
+                # Add more detailed information about spike timing
+                if is_spike_period:
+                    spike_time_base = current_time - seconds_to_train
+                    time_into_spike = spike_time_base % spike_interval
+                    time_remaining = spike_duration - time_into_spike
+                    timing_info = f"Spike time remaining: {time_remaining:.1f}s"
+                else:
+                    spike_time_base = current_time - seconds_to_train
+                    time_to_next_spike = spike_interval - (spike_time_base % spike_interval)
+                    timing_info = f"Next spike in: {time_to_next_spike:.1f}s"
             
             print(f"[{status_prefix}] Time: {current_time:.2f}s, {timing_info}")
             print(f"  → Active threads: {active_threads}/{threads} ({thread_usage_pct:.1f}%)")
@@ -302,7 +329,8 @@ def periodic_runner():
             
             last_status_time = now
         
-        current_rate = rate * spike_multiplier if is_spike_period else rate
+        # Determine current rate (only affected by spikes after training phase)
+        current_rate = rate * spike_multiplier if (not in_training_phase and is_spike_period) else rate
         
         # Schedule the request
         event_time = current_time
@@ -340,7 +368,6 @@ def periodic_runner():
                 "runner_results_file": f"{output_path}/{result_file}.txt"
                 }
         run_after_workload(args)
- 
 
 ### Main
 

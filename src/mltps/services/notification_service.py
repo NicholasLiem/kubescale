@@ -22,23 +22,19 @@ class NotificationService:
             return
             
         try:
-            # Use provided deployment name or default
             target_deployment = deployment_name or "s0-warm-pool"
             target_namespace = self.namespace
             
-            # Estimate needed replicas based on predicted traffic
-            # This is a placeholder calculation
+            # TODO: To change this
             current_replicas = 1  # Default
             replica_count = max(1, int(predicted_value / 100))  # 1 replica per 100 requests/sec
             
-            # Prepare scale request
             scale_request = {
                 "replica_count": replica_count,
                 "deployment_name": target_deployment,
                 "namespace": target_namespace
             }
             
-            # Call brain controller API
             response = requests.post(
                 f"{self.brain_controller_url}/ml-callback/scale",
                 json=scale_request
