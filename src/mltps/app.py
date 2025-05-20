@@ -1,9 +1,7 @@
 import os
 from flask import Flask, request, jsonify
 import numpy as np
-from models.arima import ARIMAModel
 import time
-import threading
 
 from config import (
     PROMETHEUS_URL,
