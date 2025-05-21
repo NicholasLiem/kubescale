@@ -25,7 +25,7 @@ rbac:
   create: true
 
 service:
-  name: brain-service
+  name: brain
   type: ClusterIP
   port: 8080
   targetPort: 8080
