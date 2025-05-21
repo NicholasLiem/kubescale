@@ -3,19 +3,10 @@ from flask import Flask, request, jsonify
 import numpy as np
 import time
 
-from config import (
-    PROMETHEUS_URL,
-    BRAIN_CONTROLLER_URL,
-    PREDICTION_INTERVAL_MINUTES,
-    PREDICTION_WINDOW_SIZE,
-    MODEL_UPDATE_INTERVAL_MINUTES,
-    NAMESPACE,
-    CONFIDENCE_THRESHOLD
-)
+from config import config
 from services.metrics_service import MetricsService
 from services.prediction_service import PredictionService
 from services.notification_service import NotificationService
-from services.metrics_transformer_service import MetricsTransformerService
 from utils.logging_config import setup_logging
 
 # Set up logging
@@ -25,15 +16,16 @@ logger = setup_logging()
 app = Flask(__name__)
 
 # Initialize services
-metrics_service = MetricsService(PROMETHEUS_URL)
+metrics_service = MetricsService(config.prometheus_url)
 prediction_service = PredictionService(
     metrics_service, 
-    prediction_interval_minutes=PREDICTION_INTERVAL_MINUTES,
-    window_size=PREDICTION_WINDOW_SIZE,
-    confidence_threshold=CONFIDENCE_THRESHOLD,
-    model_update_interval_minutes=MODEL_UPDATE_INTERVAL_MINUTES
+    update_interval_seconds=config.get("update_interval_seconds", 60),
+    window_size=config.get("prediction_window_size", 4),
+    confidence_threshold=config.get("confidence_threshold", 0.7),
+    model_update_interval_minutes=config.get("model_update_interval_minutes", 3),
+    min_training_points=config.get("min_training_points", 60)
 )
-notification_service = NotificationService(BRAIN_CONTROLLER_URL, NAMESPACE)
+notification_service = NotificationService(config.brain_controller_url, config.namespace)
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -123,66 +115,57 @@ def query_prometheus():
         logger.error(f"Error executing Prometheus query: {e}")
         return jsonify({"error": str(e)}), 500
 
-
-# TODO: Implement this properly
-def prediction_loop():
-    """Background task to periodically make predictions"""
-    # Initial delay to allow system to start up
-    time.sleep(10)
-    
+def prediction_loop():    
     logger.info("Starting prediction loop...")
     
-    # Initialize model with sufficient data
-    initialization_attempts = 0
-    while not prediction_service.is_initialized and initialization_attempts < 12:
-        logger.info(f"Attempting to initialize prediction model (attempt {initialization_attempts+1})...")
-        initialized = prediction_service.initialize_model()
-        
-        if initialized:
-            logger.info("✅ Prediction model successfully initialized!")
-            break
-            
-        initialization_attempts += 1
-        logger.info(f"Waiting for more data before next initialization attempt...")
-        time.sleep(30)
+    # # Initialize model
+    # for attempt in range(5):
+    #     logger.info(f"Attempting to initialize prediction model (attempt {attempt+1})...")
+    #     if prediction_service.initialize_model():
+    #         logger.info("✅ Prediction model successfully initialized!")
+    #         break
+    #     time.sleep(30)
     
-    if not prediction_service.is_initialized:
-        logger.warning("⚠️ Could not initialize prediction model after maximum attempts")
-        
-    # Main prediction loop
-    while True:
-        try:
-            # Update or initialize the model if needed
-            if not prediction_service.is_initialized:
-                prediction_service.initialize_model()
-            else:
-                prediction_service.update_model()
-                
-            # Make prediction if model is ready
-            if prediction_service.is_initialized:
-                forecast, confidence = prediction_service.predict_traffic()
-                
-                spike_detected, predicted_value, time_to_spike = prediction_service.detect_spike()
-                
-                if spike_detected:
-                    logger.info(f"🔥 SPIKE ALERT: Predicted value of {predicted_value:.2f} "
-                               f"expected in {time_to_spike} minutes "
-                               f"(confidence: {confidence:.2f})")
-                               
-                    notification_service.notify_brain_controller(
-                        True, predicted_value, time_to_spike
-                    )
-                else:
-                    logger.info(f"✓ Normal traffic predicted (confidence: {confidence:.2f})")
-            else:
-                logger.info("⏳ Waiting for model initialization...")
-                
-        except Exception as e:
-            logger.error(f"❌ Error in prediction loop: {e}")
+    # # Main prediction loop
+    # while True:
+    #     try:
+    #         # Update model
+    #         prediction_service.update_model()
             
-        # Sleep until next prediction cycle
-        logger.info(f"Sleeping for {PREDICTION_INTERVAL_MINUTES} minutes until next prediction cycle")
-        time.sleep(30)
+    #         # Skip prediction if model isn't ready
+    #         if not prediction_service.is_initialized:
+    #             logger.info("⏳ Waiting for model initialization...")
+    #             time.sleep(5)
+    #             continue
+                
+    #         # Make prediction and check for anomalies
+    #         _, confidence = prediction_service.predict_traffic()
+    #         anomaly = prediction_service.detect_traffic_anomaly()
+            
+    #         if anomaly["spike_detected"]:
+    #             logger.info(f"🔥 SPIKE ALERT: Predicted value of {anomaly['predicted_value']:.2f} "
+    #                        f"(confidence: {anomaly['confidence']:.2f})")
+                           
+    #             notification_service.notify_brain_controller(
+    #                 True, anomaly["predicted_value"], anomaly["time_to_spike"]
+    #             )
+                
+    #         elif anomaly["spike_ending"]:
+    #             logger.info(f"🔽 SPIKE ENDING: Traffic returning to normal levels "
+    #                    f"(current: {anomaly['current_value']:.2f}, confidence: {anomaly['confidence']:.2f})")
+                
+    #             notification_service.notify_brain_controller(
+    #                 False, anomaly["current_value"], 0, 
+    #                 message="traffic_normalizing"
+    #             )
+                
+    #         else:
+    #             logger.info(f"✓ Normal traffic predicted (confidence: {confidence:.2f})")
+                
+    #     except Exception as e:
+    #         logger.error(f"❌ Error in prediction loop: {e}")
+            
+    #     time.sleep(5)
 
 if __name__ == '__main__':        
     # Start Flask app

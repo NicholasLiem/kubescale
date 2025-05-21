@@ -1,58 +1,72 @@
 import numpy as np
 import pandas as pd
 import logging
-from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from typing import Tuple, List, Optional, Union
 
 logger = logging.getLogger("mltps")
 
 class ARIMAModel:
-    """ARIMA time series forecasting model"""
+    """SARIMA time series forecasting model for seasonal patterns"""
     
-    def __init__(self, order=(5, 1, 0)):
+    def __init__(self, order=(3, 1, 1), seasonal_order=(1, 0, 1, 12)):
         """
-        Initialize ARIMA model
+        Initialize SARIMA model
         
         Args:
             order: ARIMA model order (p, d, q)
+            seasonal_order: Seasonal component of the model (P, D, Q, s)
+                            where s is the number of steps in a season
+                            (12 for 3-minute cycle with 15s intervals)
         """
         self.order = order
+        self.seasonal_order = seasonal_order
         self.model = None
         self.is_trained = False
         self.data = []  # Store training data
         
     def train(self, data):
         """
-        Train the ARIMA model with time series data
+        Train the SARIMA model with time series data
         
         Args:
             data: Time series data for training
         """
         if len(data) == 0:
-            logger.error("Empty data provided for ARIMA training")
+            logger.error("Empty data provided for SARIMA training")
             return False
             
         # Store data for future updates
         self.data = list(data)  # Convert to list to ensure it's appendable
         
         try:
-            self.model = ARIMA(self.data, order=self.order).fit()
+            self.model = SARIMAX(
+                self.data, 
+                order=self.order,
+                seasonal_order=self.seasonal_order
+            ).fit(disp=False)
             self.is_trained = True
-            logger.info(f"ARIMA model trained with {len(data)} data points")
+            logger.info(f"SARIMA model trained with {len(data)} data points")
             return True
         except Exception as e:
-            logger.error(f"Error training ARIMA model: {e}")
+            logger.error(f"Error training SARIMA model: {e}")
             try:
                 # Try alternative model if original fails
                 alt_order = (2, 1, 0)
-                logger.info(f"Trying alternative ARIMA order: {alt_order}")
-                self.model = ARIMA(self.data, order=alt_order).fit()
+                alt_seasonal = (1, 0, 0, 12)
+                logger.info(f"Trying alternative SARIMA order: {alt_order}, seasonal: {alt_seasonal}")
+                self.model = SARIMAX(
+                    self.data, 
+                    order=alt_order,
+                    seasonal_order=alt_seasonal
+                ).fit(disp=False)
                 self.order = alt_order
+                self.seasonal_order = alt_seasonal
                 self.is_trained = True
-                logger.info(f"ARIMA model trained with alternative order")
+                logger.info(f"SARIMA model trained with alternative order")
                 return True
             except Exception as e2:
-                logger.error(f"All ARIMA model attempts failed: {e2}")
+                logger.error(f"All SARIMA model attempts failed: {e2}")
                 self.is_trained = False
                 return False
     
@@ -72,11 +86,15 @@ class ARIMAModel:
         
         # Retrain the model with the updated data
         try:
-            self.model = ARIMA(self.data, order=self.order).fit()
-            logger.debug(f"ARIMA model updated with new value: {new_value}")
+            self.model = SARIMAX(
+                self.data, 
+                order=self.order,
+                seasonal_order=self.seasonal_order
+            ).fit(disp=False)
+            logger.debug(f"SARIMA model updated with new value: {new_value}")
             return True
         except Exception as e:
-            logger.error(f"Error updating ARIMA model: {e}")
+            logger.error(f"Error updating SARIMA model: {e}")
             return False
     
     def predict(self, steps=10) -> Tuple[np.ndarray, np.ndarray, float]:
@@ -105,7 +123,7 @@ class ARIMAModel:
             forecast = np.array(forecast_result)
             intervals = np.array(conf_int)
             
-            # Calculate crude confidence score based on interval width
+            # Calculate confidence score based on interval width
             interval_width = np.mean(intervals[:, 1] - intervals[:, 0])
             mean_value = np.mean(np.abs(forecast))
             confidence_score = 1.0 - min(1.0, (interval_width / (mean_value * 2 + 1e-10)))
@@ -113,5 +131,5 @@ class ARIMAModel:
             return forecast, intervals, confidence_score
             
         except Exception as e:
-            logger.error(f"Error making ARIMA predictions: {e}")
+            logger.error(f"Error making SARIMA predictions: {e}")
             return np.array([]), np.array([]), 0.0

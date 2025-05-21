@@ -10,6 +10,7 @@ COPY . .
 ENV PROMETHEUS_URL="http://prometheus-kube-prometheus-prometheus.default.svc.cluster.local:9090"
 ENV BRAIN_CONTROLLER_URL="http://brain.kube-scale.svc.cluster.local:8080"
 ENV PORT=5000
+ENV MLTPS_CONFIG_FILE="/app/mltps_config.json"
 
 # Expose ports for Flask and Prometheus metrics
 EXPOSE 5000 8000
