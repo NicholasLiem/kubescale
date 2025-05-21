@@ -17,15 +17,6 @@ resources:
     memory: "512Mi"
     cpu: "500m"
 
-config:
-  prometheusUrl: "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090"
-  brainControllerUrl: "http://brain.kube-scale.svc.cluster.local:8080"
-  namespace: "default"
-  predictionIntervalMinutes: 5
-  predictionWindowSize: 12
-  modelUpdateIntervalMinutes: 10
-  confidenceThreshold: 0.7
-
 service:
   type: ClusterIP
   port: 80

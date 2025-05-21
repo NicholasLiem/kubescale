@@ -25,21 +25,6 @@ spec:
               name: http
             - containerPort: {{ .Values.service.metricsPort }}
               name: metrics
-          env:
-            - name: PROMETHEUS_URL
-              value: {{ .Values.config.prometheusUrl }}
-            - name: BRAIN_CONTROLLER_URL
-              value: {{ .Values.config.brainControllerUrl }}
-            - name: NAMESPACE
-              value: {{ .Values.config.namespace }}
-            - name: PREDICTION_INTERVAL_MINUTES
-              value: "{{ .Values.config.predictionIntervalMinutes }}"
-            - name: PREDICTION_WINDOW_SIZE
-              value: "{{ .Values.config.predictionWindowSize }}"
-            - name: MODEL_UPDATE_INTERVAL_MINUTES
-              value: "{{ .Values.config.modelUpdateIntervalMinutes }}"
-            - name: CONFIDENCE_THRESHOLD
-              value: "{{ .Values.config.confidenceThreshold }}"
           resources:
             requests:
               memory: {{ .Values.resources.requests.memory }}
