@@ -50,7 +50,7 @@ data:
         "image": "msvcbench/microservice:latest",
         "namespace": "default",
         "memory-limits": "1Gi",
-        "cpu-limits": "1"
+        "cpu-limits": "800m"
       },
       "s1": {
         "external_services": [
@@ -97,7 +97,7 @@ data:
         "image": "msvcbench/microservice:latest",
         "namespace": "default",
         "memory-limits": "1Gi",
-        "cpu-limits": "1"
+        "cpu-limits": "800m"
       },
       "s2": {
         "external_services": [
@@ -144,7 +144,7 @@ data:
         "image": "msvcbench/microservice:latest",
         "namespace": "default",
         "memory-limits": "1Gi",
-        "cpu-limits": "1"
+        "cpu-limits": "800m"
       }
     }
 kind: ConfigMap

@@ -58,7 +58,7 @@ spec:
               value: '32'
           resources: 
             limits:
-              cpu: 1
+              cpu: 800m
               memory: 1Gi    
         
         

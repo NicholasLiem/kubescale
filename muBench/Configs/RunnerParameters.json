@@ -17,16 +17,16 @@
             {
                "name": "small_spike",
                "multiplier": 4,
-               "duration": 120,
+               "duration": 240,
                "interval": 360,
                "offset": 0
             },
             {
                "name": "big_spike",
                "multiplier": 8,
-               "duration": 60,
+               "duration": 240,
                "interval": 360,
-               "offset": 180
+               "offset": 240
             }
          ]
       },

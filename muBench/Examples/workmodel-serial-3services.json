@@ -44,7 +44,7 @@
     "image": "msvcbench/microservice_v6-screen:1.0",
     "namespace": "default",
     "memory-limits": "1Gi",
-    "cpu-limits": "1"
+    "cpu-limits": "800m"
   },
   "s1": {
     "external_services": [
@@ -92,7 +92,7 @@
     "image": "msvcbench/microservice_v6-screen:1.0",
     "namespace": "default",
     "memory-limits": "1Gi",
-    "cpu-limits": "1"
+    "cpu-limits": "800m"
   },
   "s2": {
     "external_services": [
@@ -140,6 +140,6 @@
     "image": "msvcbench/microservice_v6-screen:1.0",
     "namespace": "default",
     "memory-limits": "1Gi",
-    "cpu-limits": "1"
+    "cpu-limits": "800m"
   }
 }
