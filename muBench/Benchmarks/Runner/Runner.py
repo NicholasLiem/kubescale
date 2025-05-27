@@ -190,34 +190,52 @@ def periodic_runner():
     is_in_spike = False
 
     if 'rate' in runner_parameters.keys():
-        rate=runner_parameters['rate']
+        rate = runner_parameters['rate']
     else:
         rate = 1
     
     if 'ingress_service' in runner_parameters.keys():
-        srv=runner_parameters['ingress_service']
+        srv = runner_parameters['ingress_service']
     else:
         srv = 's0'
 
     if 'minutes_to_train' in runner_parameters.keys():
-        minutes_to_train = runner_parameters['minutes_to_train']  # minutes to run normal traffic before spikes
+        minutes_to_train = runner_parameters['minutes_to_train']
     else:
         minutes_to_train = 0
-        
-    if 'spike_interval' in runner_parameters.keys():
-        spike_interval = runner_parameters['spike_interval']  # seconds between spikes
-    else:
-        spike_interval = 30
     
-    if 'spike_multiplier' in runner_parameters.keys():
-        spike_multiplier = runner_parameters['spike_multiplier']  # how much to multiply the rate during spike
-    else:
-        spike_multiplier = 5
+    # Wave pattern configuration
+    wave_pattern_enabled = False
+    wave_patterns = []
+    baseline_interval = 120  # Default baseline interval between waves
+    
+    if 'wave_pattern' in runner_parameters.keys() and runner_parameters['wave_pattern'].get('enabled', False):
+        wave_pattern_enabled = True
+        wave_patterns = runner_parameters['wave_pattern'].get('waves', [])
+        pattern_type = runner_parameters['wave_pattern'].get('pattern_type', 'sequential')
+        baseline_interval = runner_parameters['wave_pattern'].get('baseline_interval', 120)
         
-    if 'spike_duration' in runner_parameters.keys():
-        spike_duration = runner_parameters['spike_duration']  # how long spike lasts in seconds
-    else:
-        spike_duration = 5
+        print(f"Wave pattern enabled: {pattern_type}")
+        print(f"Baseline interval between waves: {baseline_interval}s")
+        for i, wave in enumerate(wave_patterns):
+            print(f"  Wave {i+1} ({wave.get('name', f'wave_{i+1}')}): {wave.get('multiplier', 1)}x rate for {wave.get('duration', 30)}s every {wave.get('interval', 300)}s")
+    
+    # Fallback to legacy spike configuration if wave pattern is disabled
+    if not wave_pattern_enabled:
+        if 'spike_interval' in runner_parameters.keys():
+            spike_interval = runner_parameters['spike_interval']
+        else:
+            spike_interval = 30
+        
+        if 'spike_multiplier' in runner_parameters.keys():
+            spike_multiplier = runner_parameters['spike_multiplier']
+        else:
+            spike_multiplier = 5
+            
+        if 'spike_duration' in runner_parameters.keys():
+            spike_duration = runner_parameters['spike_duration']
+        else:
+            spike_duration = 5
     
     if 'debug_logging' in runner_parameters.keys():
         debug_logging = runner_parameters['debug_logging']
@@ -235,69 +253,165 @@ def periodic_runner():
     if minutes_to_train > 0:
         print(f"Training phase: {minutes_to_train} minutes ({seconds_to_train} seconds) at baseline rate: {rate} req/sec")
     
-    print(f"Base rate: {rate} req/sec, Spike rate: {rate * spike_multiplier} req/sec")
-    print(f"Spike interval: {spike_interval}s, Spike duration: {spike_duration}s")
+    if wave_pattern_enabled:
+        max_multiplier = max([wave.get('multiplier', 1) for wave in wave_patterns])
+        print(f"Base rate: {rate} req/sec, Max spike rate: {rate * max_multiplier} req/sec")
+    else:
+        print(f"Base rate: {rate} req/sec, Spike rate: {rate * spike_multiplier} req/sec")
+        print(f"Spike interval: {spike_interval}s, Spike duration: {spike_duration}s")
+    
     print(f"Thread pool size: {threads}")
     
     s = sched.scheduler(time.time, time.sleep)
     pool = ThreadPoolExecutor(threads)
     futures = list()
-    event={'service':srv,'time':0}
-    offset=10 # initial delay to allow the insertion of events in the event list
+    event = {'service': srv, 'time': 0}
+    offset = 10
     
-    # Track spike status for logging
+    # Track status for logging
     last_spike_state = False
-    active_threads = 0
     last_status_time = time.time()
-    status_interval = 5  # Log status every 5 seconds
+    status_interval = 5
+    current_wave_info = {"active": False, "name": "baseline", "multiplier": 1}
+    
+    def get_current_wave_multiplier(current_time, in_training_phase):
+        """Calculate the current rate multiplier based on wave patterns with baseline intervals"""
+        if in_training_phase or not wave_pattern_enabled:
+            if not wave_pattern_enabled and not in_training_phase:
+                # Use legacy spike logic
+                is_spike_period = ((current_time - seconds_to_train) % spike_interval) < spike_duration
+                return spike_multiplier if is_spike_period else 1, is_spike_period, "legacy_spike" if is_spike_period else "baseline"
+            return 1, False, "training" if in_training_phase else "baseline"
+        
+        time_since_start = current_time - seconds_to_train
+        active_waves = []
+        
+        # Check each wave pattern with offset support for sequential pattern
+        for i, wave in enumerate(wave_patterns):
+            interval = wave.get('interval', 300)
+            duration = wave.get('duration', 30)
+            multiplier = wave.get('multiplier', 1)
+            name = wave.get('name', f'wave_{i+1}')
+            offset = wave.get('offset', 0)  # New: support for wave offset
+            
+            # Calculate time position within this wave's cycle including offset
+            time_in_cycle = (time_since_start - offset) % interval
+            
+            # Check if we're in this wave's active period and past the offset
+            if time_since_start >= offset and time_in_cycle < duration:
+                # For sequential pattern with offsets, check if enough baseline time has passed
+                if pattern_type == "custom":
+                    # For custom pattern, waves are scheduled with specific offsets
+                    # Check if any other wave was recently active
+                    other_waves_recently_active = False
+                    
+                    for j, other_wave in enumerate(wave_patterns):
+                        if i == j:  # Skip self
+                            continue
+                        
+                        other_offset = other_wave.get('offset', 0)
+                        other_interval = other_wave.get('interval', 300)
+                        other_duration = other_wave.get('duration', 30)
+                        other_time_in_cycle = (time_since_start - other_offset) % other_interval
+                        
+                        # Check if other wave ended recently (within baseline_interval)
+                        if (time_since_start >= other_offset and 
+                            other_duration <= other_time_in_cycle <= (other_duration + baseline_interval)):
+                            # Allow sequential waves with proper 60s spacing
+                            time_diff = abs((time_since_start - other_offset) % other_interval - 
+                                          (time_since_start - offset) % interval)
+                            if time_diff < baseline_interval and abs(offset - other_offset) >= baseline_interval:
+                                other_waves_recently_active = False
+                            else:
+                                other_waves_recently_active = True
+                                break
+                    
+                    # Only activate this wave if no conflicting wave is active
+                    if not other_waves_recently_active:
+                        active_waves.append({
+                            'multiplier': multiplier,
+                            'name': name,
+                            'remaining': duration - time_in_cycle
+                        })
+                else:
+                    # Original logic for non-custom patterns
+                    other_waves_recently_active = False
+                    
+                    for j, other_wave in enumerate(wave_patterns):
+                        if i == j:  # Skip self
+                            continue
+                        
+                        other_interval = other_wave.get('interval', 300)
+                        other_duration = other_wave.get('duration', 30)
+                        other_time_in_cycle = time_since_start % other_interval
+                        
+                        # Check if other wave ended recently (within baseline_interval)
+                        if other_duration <= other_time_in_cycle <= (other_duration + baseline_interval):
+                            other_waves_recently_active = True
+                            break
+                    
+                    # Only activate this wave if no other wave was recently active
+                    if not other_waves_recently_active:
+                        active_waves.append({
+                            'multiplier': multiplier,
+                            'name': name,
+                            'remaining': duration - time_in_cycle
+                        })
+        
+        if active_waves:
+            # Use the highest multiplier if multiple waves are somehow still active
+            max_wave = max(active_waves, key=lambda x: x['multiplier'])
+            return max_wave['multiplier'], True, max_wave['name']
+        
+        return 1, False, "baseline"
     
     time_counter = 0
     i = 0
     while i < workload_events:
-        # Determine current time and whether we're still in training phase
         current_time = offset + time_counter
         in_training_phase = current_time < (offset + seconds_to_train)
         
-        # Determine if we're in a spike period (only after training phase)
-        is_spike_period = False if in_training_phase else ((current_time - seconds_to_train) % spike_interval) < spike_duration
+        # Get current wave multiplier
+        current_multiplier, is_wave_active, wave_name = get_current_wave_multiplier(current_time, in_training_phase)
         
-        # Log training phase status
-        if debug_logging and in_training_phase and last_spike_state != in_training_phase:
-            print("\n" + "="*60)
-            print(f"🔬 TRAINING PHASE STARTED at {current_time:.2f}s 🔬")
-            print(f"Running at baseline rate: {rate} req/sec")
-            print(f"Training duration: {minutes_to_train} minutes ({seconds_to_train} seconds)")
-            print("="*60 + "\n")
-            last_spike_state = in_training_phase
-            is_in_spike = False
+        # Update global spike indicator
+        is_in_spike = is_wave_active and not in_training_phase
         
-        # Log transition from training to spike pattern
-        if debug_logging and not in_training_phase and last_spike_state and not is_spike_period:
-            print("\n" + "="*60)
-            print(f"🔬 TRAINING PHASE COMPLETED at {current_time:.2f}s 🔬")
-            print(f"Switching to spike pattern mode")
-            print(f"First spike will start soon")
-            print("="*60 + "\n")
-            last_spike_state = False
+        # Log wave transitions
+        wave_state_changed = (current_wave_info["active"] != is_wave_active or 
+                            current_wave_info["name"] != wave_name or
+                            current_wave_info["multiplier"] != current_multiplier)
         
-        # Log spike transitions with enhanced visibility (after training phase)
-        if not in_training_phase and debug_logging and is_spike_period != last_spike_state:
-            is_in_spike = is_spike_period  # Update global spike indicator
-            if is_spike_period:
+        if debug_logging and wave_state_changed and not in_training_phase:
+            current_wave_info = {"active": is_wave_active, "name": wave_name, "multiplier": current_multiplier}
+            
+            if is_wave_active:
                 print("\n" + "="*60)
-                print(f"🔥 SPIKE STARTING at {current_time:.2f}s 🔥")
-                print(f"Rate increasing from {rate} req/sec to {rate * spike_multiplier} req/sec")
-                print(f"Expected duration: {spike_duration} seconds")
+                print(f"🌊 WAVE STARTING: {wave_name.upper()} at {current_time:.2f}s 🌊")
+                print(f"Rate increasing from {rate} req/sec to {rate * current_multiplier} req/sec ({current_multiplier}x)")
                 print("="*60 + "\n")
             else:
                 print("\n" + "="*60)
-                print(f"✓ SPIKE ENDING at {current_time:.2f}s")
+                print(f"✓ WAVE ENDING: Returning to baseline at {current_time:.2f}s")
                 print(f"Rate returning to {rate} req/sec")
-                print(f"Next spike in {spike_interval - spike_duration} seconds")
+                print(f"Next wave in minimum {baseline_interval}s")
                 print("="*60 + "\n")
-            last_spike_state = is_spike_period
         
-        # Enhanced periodic status logging
+        # Training phase logging
+        if debug_logging and in_training_phase and not last_spike_state:
+            print("\n" + "="*60)
+            print(f"🔬 TRAINING PHASE at {current_time:.2f}s 🔬")
+            print(f"Running at baseline rate: {rate} req/sec")
+            print("="*60 + "\n")
+            last_spike_state = True
+        elif debug_logging and not in_training_phase and last_spike_state:
+            print("\n" + "="*60)
+            print(f"🔬 TRAINING PHASE COMPLETED at {current_time:.2f}s 🔬")
+            print(f"Switching to wave pattern mode")
+            print("="*60 + "\n")
+            last_spike_state = False
+        
+        # Periodic status logging
         now = time.time()
         if debug_logging and now - last_status_time > status_interval:
             active_threads = len([f for f in futures if not f.done()])
@@ -306,19 +420,10 @@ def periodic_runner():
             if in_training_phase:
                 status_prefix = "🔬 TRAINING"
                 training_remaining = seconds_to_train - (current_time - offset)
-                timing_info = f"Training remaining: {training_remaining:.1f}s ({training_remaining/60:.1f} min)"
+                timing_info = f"Training remaining: {training_remaining:.1f}s"
             else:
-                status_prefix = "🔥 SPIKE STATUS" if is_spike_period else "BASELINE STATUS"
-                # Add more detailed information about spike timing
-                if is_spike_period:
-                    spike_time_base = current_time - seconds_to_train
-                    time_into_spike = spike_time_base % spike_interval
-                    time_remaining = spike_duration - time_into_spike
-                    timing_info = f"Spike time remaining: {time_remaining:.1f}s"
-                else:
-                    spike_time_base = current_time - seconds_to_train
-                    time_to_next_spike = spike_interval - (spike_time_base % spike_interval)
-                    timing_info = f"Next spike in: {time_to_next_spike:.1f}s"
+                status_prefix = f"🌊 {wave_name.upper()}" if is_wave_active else "📊 BASELINE"
+                timing_info = f"Current rate: {rate * current_multiplier:.2f} req/sec ({current_multiplier}x)"
             
             print(f"[{status_prefix}] Time: {current_time:.2f}s, {timing_info}")
             print(f"  → Active threads: {active_threads}/{threads} ({thread_usage_pct:.1f}%)")
@@ -329,14 +434,14 @@ def periodic_runner():
             
             last_status_time = now
         
-        # Determine current rate (only affected by spikes after training phase)
-        current_rate = rate * spike_multiplier if (not in_training_phase and is_spike_period) else rate
+        # Calculate current rate
+        current_rate = rate * current_multiplier
         
         # Schedule the request
         event_time = current_time
         s.enter(event_time, 1, job_assignment, argument=(pool, futures, event, stats, local_latency_stats))
         
-        # Calculate next request timing based on current rate
+        # Calculate next request timing
         time_counter += 1.0/current_rate
         i += 1
 
@@ -468,4 +573,4 @@ else:
             time.sleep(100)
         with open(f"{output_path}/{result_file}_{workload_var.split('/')[-1].split('.')[0]}.txt", "w") as f:
             f.writelines("\n".join(stats))
- 
+

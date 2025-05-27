@@ -12,15 +12,15 @@
           "run": true,
           "range_complexity": [
             100,
-            100
+            160
           ],
-          "thread_pool_size": 1,
-          "trials": 33
+          "thread_pool_size": 8,
+          "trials": 20
         },
         "memory_stress": {
-          "run": true,
-          "memory_size": 10000,
-          "memory_io": 1000
+          "run": false,
+          "memory_size": 50000,
+          "memory_io": 5000
         },
         "disk_stress": {
           "run": false,
@@ -37,14 +37,14 @@
       }
     },
     "request_method": "rest",
-    "workers": 4,
-    "threads": 16,
+    "workers": 8,
+    "threads": 32,
     "url": "s0-warm-pool.warm-pool.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
     "namespace": "warm-pool",
-    "memory-limits": "500Mi",
-    "cpu-limits": "500m"
+    "memory-limits": "1Gi",
+    "cpu-limits": "1"
   },
   "s1-warm-pool": {
     "external_services": [
@@ -60,15 +60,15 @@
           "run": true,
           "range_complexity": [
             100,
-            100
+            160
           ],
-          "thread_pool_size": 1,
-          "trials": 33
+          "thread_pool_size": 8,
+          "trials": 20
         },
         "memory_stress": {
-          "run": true,
-          "memory_size": 10000,
-          "memory_io": 1000
+          "run": false,
+          "memory_size": 50000,
+          "memory_io": 5000
         },
         "disk_stress": {
           "run": false,
@@ -85,14 +85,14 @@
       }
     },
     "request_method": "rest",
-    "workers": 4,
-    "threads": 16,
+    "workers": 8,
+    "threads": 32,
     "url": "s1-warm-pool.warm-pool.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
     "namespace": "warm-pool",
-    "memory-limits": "500Mi",
-    "cpu-limits": "500m"
+    "memory-limits": "1Gi",
+    "cpu-limits": "1"
   },
   "s2-warm-pool": {
     "external_services": [
@@ -108,15 +108,15 @@
           "run": true,
           "range_complexity": [
             100,
-            100
+            160
           ],
-          "thread_pool_size": 1,
-          "trials": 33
+          "thread_pool_size": 8,
+          "trials": 20
         },
         "memory_stress": {
-          "run": true,
-          "memory_size": 10000,
-          "memory_io": 1000
+          "run": false,
+          "memory_size": 50000,
+          "memory_io": 5000
         },
         "disk_stress": {
           "run": false,
@@ -133,13 +133,13 @@
       }
     },
     "request_method": "rest",
-    "workers": 4,
-    "threads": 16,
+    "workers": 8,
+    "threads": 32,
     "url": "s2-warm-pool.warm-pool.svc.cluster.local",
     "path": "/api/v1",
     "image": "msvcbench/microservice_v6-screen:1.0",
     "namespace": "warm-pool",
-    "memory-limits": "500Mi",
-    "cpu-limits": "500m"
+    "memory-limits": "1Gi",
+    "cpu-limits": "1"
   }
 }

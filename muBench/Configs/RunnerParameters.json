@@ -7,18 +7,34 @@
       "debug_logging": true,
       "workload_type": "periodic",
       "rate": 0.5,
-      "minutes_to_train": 5,
+      "minutes_to_train": 1,
       "workload_events": 5000,
+      "wave_pattern": {
+         "enabled": true,
+         "pattern_type": "custom",
+         "baseline_interval": 60,
+         "waves": [
+            {
+               "name": "small_spike",
+               "multiplier": 4,
+               "duration": 120,
+               "interval": 360,
+               "offset": 0
+            },
+            {
+               "name": "big_spike",
+               "multiplier": 8,
+               "duration": 60,
+               "interval": 360,
+               "offset": 180
+            }
+         ]
+      },
       "spike_interval": 300,
       "spike_multiplier": 15,
       "spike_duration": 60,
       "result_file": "result"
    },
-   "OutputPath": "SimulationWorkspace/Result",
-   "_AfterWorkloadFunction": {
-      "_comment": "remove _ from the object name to execute the funcions",
-      "file_path": "Function",
-      "function_name": "get_prometheus_stats"
-   }
+   "OutputPath": "SimulationWorkspace/Result"
 }
 
