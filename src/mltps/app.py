@@ -1,7 +1,6 @@
 import os
 from flask import Flask, request, jsonify
-import numpy as np
-import time
+from services.metrics_transformer_service import MetricsTransformerService
 
 from config import config
 from services.metrics_service import MetricsService
@@ -105,10 +104,21 @@ def query_prometheus():
             end_time=end_time,
             step=step
         )
+        transformer = MetricsTransformerService()
+        raw_df = transformer.prometheus_to_dataframe(result)
+        prepared_df = transformer.prepare_for_arima(
+                df=raw_df,
+                metric_type="cpu",
+                resample_freq="15s",
+                fillna_method='ffill',
+                aggregate=True
+            )
+        
+        data_prepared_df = prepared_df.to_json()
                     
         return jsonify({
             "query": query,
-            "raw_data": result
+            "data": data_prepared_df
         })
         
     except Exception as e:
