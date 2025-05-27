@@ -178,3 +178,40 @@ def create_internalservice_configmap_yaml_file(k8s_parameters, nfs, output_path,
     with open(f"{output_path}/yamls/{k8s_parameters['prefix_yaml_file']}-ConfigMapInternalServices.yaml", "w") as file:
         file.write(f)
     print("Internal-Services Configmap Created!")
+
+def create_hpa_yaml_files(workmodel, k8s_parameters, output_path):
+    """Create HPA YAML files for each service"""
+    namespace = k8s_parameters['namespace']
+    
+    # Skip HPA creation if disabled
+    if not k8s_parameters.get('hpa', {}).get('enabled', False):
+        print("HPA is disabled, skipping HPA creation")
+        return
+    
+    hpa_config = k8s_parameters.get('hpa', {})
+    
+    for service in workmodel:
+        # Skip nginx gateway from HPA
+        if service == 'gw-nginx' or 'nginx' in service.lower():
+            continue
+            
+        with open(f"{K8s_YAML_BUILDER_PATH}/Templates/HPATemplate.yaml", "r") as file:
+            f = file.read()
+            f = f.replace("{{SERVICE_NAME}}", service)
+            f = f.replace("{{NAMESPACE}}", namespace)
+            f = f.replace("{{MIN_REPLICAS}}", str(hpa_config.get('minReplicas', 1)))
+            f = f.replace("{{MAX_REPLICAS}}", str(hpa_config.get('maxReplicas', 2)))
+            f = f.replace("{{TARGET_CPU_UTILIZATION}}", str(hpa_config.get('targetCPUUtilizationPercentage', 70)))
+            f = f.replace("{{SCALE_UP_STABILIZATION}}", str(hpa_config.get('scaleUp', {}).get('stabilizationWindowSeconds', 60)))
+            f = f.replace("{{SCALE_UP_PERCENT}}", str(hpa_config.get('scaleUp', {}).get('percentPolicy', 100)))
+            f = f.replace("{{SCALE_UP_PODS}}", str(hpa_config.get('scaleUp', {}).get('podsPolicy', 1)))
+            f = f.replace("{{SCALE_UP_PERIOD}}", str(hpa_config.get('scaleUp', {}).get('periodSeconds', 15)))
+            f = f.replace("{{SCALE_DOWN_STABILIZATION}}", str(hpa_config.get('scaleDown', {}).get('stabilizationWindowSeconds', 120)))
+            f = f.replace("{{SCALE_DOWN_PERCENT}}", str(hpa_config.get('scaleDown', {}).get('percentPolicy', 10)))
+            f = f.replace("{{SCALE_DOWN_PERIOD}}", str(hpa_config.get('scaleDown', {}).get('periodSeconds', 15)))
+        
+        # Create HPA YAML file
+        with open(f"{output_path}/yamls/{k8s_parameters['prefix_yaml_file']}-HPA-{service}.yaml", "w") as file:
+            file.write(f)
+    
+    print("HPA files created!")

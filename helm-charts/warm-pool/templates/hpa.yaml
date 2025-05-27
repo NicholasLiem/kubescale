@@ -1,0 +1,40 @@
+{{- range .Values.apps.sApps }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .name }}-warm-pool-hpa
+  namespace: {{ $.Values.namespace }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .name }}-warm-pool
+  minReplicas: {{ $.Values.hpa.minReplicas }}
+  maxReplicas: {{ $.Values.hpa.maxReplicas }}
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: {{ $.Values.hpa.targetCPUUtilizationPercentage }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ $.Values.hpa.scaleUp.stabilizationWindowSeconds }}
+      policies:
+      - type: Percent
+        value: {{ $.Values.hpa.scaleUp.percentPolicy }}
+        periodSeconds: {{ $.Values.hpa.scaleUp.periodSeconds }}
+      - type: Pods
+        value: {{ $.Values.hpa.scaleUp.podsPolicy }}
+        periodSeconds: {{ $.Values.hpa.scaleUp.periodSeconds }}
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: {{ $.Values.hpa.scaleDown.stabilizationWindowSeconds }}
+      policies:
+      - type: Percent
+        value: {{ $.Values.hpa.scaleDown.percentPolicy }}
+        periodSeconds: {{ $.Values.hpa.scaleDown.periodSeconds }}
+      selectPolicy: Min
+{{- end }}

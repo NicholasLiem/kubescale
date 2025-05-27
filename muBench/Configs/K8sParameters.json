@@ -10,7 +10,24 @@
       "sleep": 0,
       "nginx-gw": true,
       "nginx-svc-type": "NodePort",
-      "no-apply": false
+      "no-apply": false,
+      "hpa": {
+         "enabled": true,
+         "minReplicas": 1,
+         "maxReplicas": 2,
+         "targetCPUUtilizationPercentage": 70,
+         "scaleUp": {
+            "stabilizationWindowSeconds": 60,
+            "percentPolicy": 100,
+            "podsPolicy": 1,
+            "periodSeconds": 15
+         },
+         "scaleDown": {
+            "stabilizationWindowSeconds": 120,
+            "percentPolicy": 10,
+            "periodSeconds": 15
+         }
+      }
    },
    "InternalServiceFilePath": "CustomFunctions",
    "OutputPath": "SimulationWorkspace",
