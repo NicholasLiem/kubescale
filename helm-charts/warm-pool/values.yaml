@@ -13,8 +13,8 @@ resources:
     cpu: "50m"
   # Maximum resource limits
   limits:
-    memory: "500Mi"
-    cpu: "500m"
+    memory: "384Mi"
+    cpu: "300m"
 
 hpa:
   enabled: true
