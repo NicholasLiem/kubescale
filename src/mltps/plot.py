@@ -14,7 +14,7 @@ warnings.filterwarnings('ignore')
 class SARIMAForecaster:
     """SARIMA-based forecasting for CPU usage with spike detection"""
     
-    def __init__(self, data_path='data/training_data_60_min.csv'):
+    def __init__(self, data_path='data/training_data_big_small_idle.csv'):
         """Initialize the forecaster with data"""
         self.data_path = data_path
         self.df = None
@@ -403,32 +403,30 @@ class SARIMAForecaster:
         }
     
     def detect_spikes_in_forecast_improved(self, forecast_data, grace_period_seconds=60):
-        """Enhanced spike detection with grace period to avoid detecting ongoing spikes"""
+        """Enhanced spike detection with better threshold separation"""
         print("DEBUG: Starting spike detection with grace period...")
         
         # Calculate grace period in data points (15-second intervals)
-        grace_period_points = int(grace_period_seconds / 15)  # 30 seconds = 2 points
+        grace_period_points = int(grace_period_seconds / 15)
         print(f"DEBUG: Grace period: {grace_period_seconds} seconds ({grace_period_points} data points)")
         
-        # Use median-based thresholds
-        median_value = self.df['value'].median()
-        small_spike_threshold = median_value * 1.1  # 10% above median
-        big_spike_threshold = median_value * 1.8    # 80% above median
+        baseline_value = self.df['value'].median()
         
-        print(f"DEBUG: Median: {median_value:.2f}, Small threshold: {small_spike_threshold:.2f}, Big threshold: {big_spike_threshold:.2f}")
+        small_spike_threshold = baseline_value * 1.1
+        big_spike_threshold = baseline_value * 1.8
+        
+        # print(f"DEBUG: Baseline: {baseline_value:.2f}, Std: {std_value:.2f}")
+        print(f"DEBUG: Small threshold: {small_spike_threshold:.2f}, Big threshold: {big_spike_threshold:.2f}")
         
         all_spikes = []
         
         # Find all peaks above small spike threshold, but exclude grace period
         peak_indices = np.where(forecast_data['forecast'] > small_spike_threshold)[0]
-        
-        # Filter out peaks within grace period
         valid_peak_indices = peak_indices[peak_indices >= grace_period_points]
         
         print(f"DEBUG: Found {len(peak_indices)} total peaks, {len(valid_peak_indices)} peaks after grace period")
         
         if len(valid_peak_indices) > 0:
-            # Group consecutive peaks
             spike_groups = self._group_consecutive_peaks(valid_peak_indices, max_gap=3)
             
             for i, group in enumerate(spike_groups):
@@ -436,17 +434,17 @@ class SARIMAForecaster:
                 spike_value = forecast_data['forecast'][peak_idx]
                 spike_time = forecast_data['forecast_index'][peak_idx]
                 
-                # Double-check grace period for spike time
                 time_from_now = (spike_time - self.df.index[-1]).total_seconds()
                 if time_from_now < grace_period_seconds:
-                    print(f"DEBUG: Skipping spike at {time_from_now:.1f}s (within grace period)")
                     continue
                 
-                # Classify spike type for coloring (but don't show in annotation)
+                # Better spike classification based on your pattern
                 if spike_value > big_spike_threshold:
                     spike_type = "BIG"
-                else:
+                elif spike_value > small_spike_threshold:
                     spike_type = "SMALL"
+                else:
+                    continue  # Skip if below small threshold
                 
                 spike_info = {
                     'index': peak_idx,
@@ -457,10 +455,9 @@ class SARIMAForecaster:
                     'time_from_now': time_from_now
                 }
                 all_spikes.append(spike_info)
-                print(f"DEBUG: Valid Spike {spike_info['spike_id']} - Index: {peak_idx}, "
-                    f"Value: {spike_value:.2f}, Time from now: {time_from_now:.1f}s")
-        
-        # Fallback to relative peak detection if no spikes found (also with grace period)
+                print(f"DEBUG: {spike_type} Spike {spike_info['spike_id']} - "
+                      f"Value: {spike_value:.2f}, Threshold ratio: {spike_value/baseline_value:.2f}x")
+                
         if not all_spikes:
             print("DEBUG: No absolute spikes found, using relative peak detection")
             try:
@@ -500,7 +497,7 @@ class SARIMAForecaster:
             except ImportError:
                 print("DEBUG: scipy not available for relative peak detection")
         
-        print(f"DEBUG: Final spike count after grace period: {len(all_spikes)}")
+        print(f"DEBUG: Final spike count: {len(all_spikes)}")
         return all_spikes
 
     def _group_consecutive_peaks(self, peak_indices, max_gap=2):
@@ -571,40 +568,49 @@ class SARIMAForecaster:
         return fitted, enhanced_df
 
     def predict_spike_pattern(self, forecast_data, enhanced_df):
-        """Enhanced spike prediction that considers alternating patterns"""
-        base_forecast = forecast_data['forecast']
+        """Enhanced spike prediction with proper alternating pattern"""
+        base_forecast = forecast_data['forecast'].copy()
         
-        # Analyze historical pattern
-        recent_spikes = enhanced_df.tail(20)  # Look at last 20 points
-        spike_pattern = recent_spikes['spike_magnitude'].values
+        # Analyze recent spike pattern
+        recent_data = enhanced_df.tail(40)  # Look at more history
+        spike_pattern = recent_data['spike_magnitude'].values
         
-        # Determine what type of spike should come next
+        # Find the most recent spike type
         last_spike_type = 0
+        last_spike_index = -1
+        
         for i in range(len(spike_pattern)-1, -1, -1):
             if spike_pattern[i] > 0:
                 last_spike_type = spike_pattern[i]
+                last_spike_index = i
                 break
+    
+        print(f"DEBUG: Last spike type: {last_spike_type} at index {last_spike_index}")
         
-        print(f"DEBUG: Last spike type was: {last_spike_type}")
-        
-        # Adjust forecast based on expected pattern
+        # Don't over-amplify - use subtle adjustments
         enhanced_forecast = base_forecast.copy()
-        spike_threshold = self.df['value'].quantile(0.90)
+        baseline = self.df['value'].median()
         
+        # Look for potential spike locations in forecast
         for i, value in enumerate(base_forecast):
-            if value > spike_threshold:
-                if last_spike_type == 1:  # Last was small, expect big
-                    enhanced_forecast[i] = value * 1.5  # Amplify prediction
-                    print(f"DEBUG: Amplifying spike at index {i} (expecting big after small)")
+            # Only adjust if value is already elevated
+            if value > baseline * 1.2:  # 20% above baseline
+                if last_spike_type == 1:  # Last was small, next should be big
+                    # Slightly increase prediction for big spike
+                    enhanced_forecast[i] = value * 1.2
+                    print(f"DEBUG: Enhancing prediction at {i} for expected BIG spike (1.2x)")
                     last_spike_type = 2
-                elif last_spike_type == 2:  # Last was big, expect small
-                    enhanced_forecast[i] = value * 0.8  # Reduce prediction
-                    print(f"DEBUG: Reducing spike at index {i} (expecting small after big)")
+                elif last_spike_type == 2:  # Last was big, next should be small  
+                    # Slightly decrease prediction for small spike
+                    enhanced_forecast[i] = value * 0.9
+                    print(f"DEBUG: Reducing prediction at {i} for expected SMALL spike (0.9x)")
                     last_spike_type = 1
                 else:
-                    last_spike_type = 1  # Default to small spike
-                break  # Only adjust first detected spike
-        
+                    # First spike, assume small
+                    enhanced_forecast[i] = value * 0.95
+                    last_spike_type = 1
+                break  # Only adjust first spike found
+    
         return enhanced_forecast
 
     def optimize_parameters_for_spikes(self):
@@ -786,8 +792,13 @@ class SARIMAVisualizer:
         plt.show()
     
     def plot_forecast_results(self, forecast_data, spikes=None, grace_period_seconds=60):
-        """Plot the final forecast results with grace period visualization"""
+        """Plot the final forecast results with grace period visualization and threshold lines"""
         plt.figure(figsize=(16, 10))
+        
+        # Calculate thresholds (same as in detect_spikes_in_forecast_improved)
+        baseline_value = self.forecaster.df['value'].median()
+        small_spike_threshold = baseline_value * 1.1
+        big_spike_threshold = baseline_value * 1.8
         
         # Plot historical data
         plt.plot(self.forecaster.df.index, self.forecaster.df['value'], 
@@ -805,6 +816,29 @@ class SARIMAVisualizer:
             forecast_data['ci_upper'],
             color='r', alpha=0.2, label='95% Confidence Interval'
         )
+        
+        # Add baseline and threshold lines
+        x_range = [self.forecaster.df.index[0], forecast_data['forecast_index'][-1]]
+        
+        # Baseline (median)
+        plt.axhline(y=baseline_value, color='green', linestyle='-', linewidth=2, 
+                    alpha=0.8, label=f'Baseline (Median: {baseline_value:.1f}%)')
+        
+        # Small spike threshold
+        plt.axhline(y=small_spike_threshold, color='orange', linestyle='--', linewidth=2, 
+                    alpha=0.8, label=f'Small Spike Threshold ({small_spike_threshold:.1f}%)')
+        
+        # Big spike threshold
+        plt.axhline(y=big_spike_threshold, color='red', linestyle='--', linewidth=2, 
+                    alpha=0.8, label=f'Big Spike Threshold ({big_spike_threshold:.1f}%)')
+        
+        # Add threshold range shading
+        plt.fill_between(x_range, baseline_value, small_spike_threshold, 
+                        color='lightgreen', alpha=0.1, label='Normal Range')
+        plt.fill_between(x_range, small_spike_threshold, big_spike_threshold, 
+                        color='yellow', alpha=0.1, label='Small Spike Range')
+        plt.fill_between(x_range, big_spike_threshold, plt.ylim()[1], 
+                        color='red', alpha=0.1, label='Big Spike Range')
         
         # Add grace period shading
         grace_end_time = self.forecaster.df.index[-1] + timedelta(seconds=grace_period_seconds)
@@ -844,15 +878,18 @@ class SARIMAVisualizer:
         plt.ylabel('CPU Usage (%)', fontsize=14)
         plt.xlabel('Time', fontsize=14)
         plt.grid(True, alpha=0.3)
-        plt.legend(loc='upper left', fontsize=11)
+        plt.legend(loc='upper left', fontsize=10, ncol=2)  # Use 2 columns for better space usage
         
-        # Add model info
+        # Add model info with threshold values
         plt.text(0.02, 0.95, 
                 f"Model: SARIMA{order}x{seasonal_order}\n"
                 f"Transform: {self.forecaster.transform_method}\n"
-                f"Grace Period: {grace_period_seconds}s",
-                transform=plt.gca().transAxes, fontsize=11,
-                bbox=dict(facecolor='white', alpha=0.8))
+                f"Grace Period: {grace_period_seconds}s\n"
+                f"Baseline: {baseline_value:.1f}%\n"
+                f"Small Threshold: {small_spike_threshold:.1f}%\n"
+                f"Big Threshold: {big_spike_threshold:.1f}%",
+                transform=plt.gca().transAxes, fontsize=10,
+                bbox=dict(facecolor='white', alpha=0.9, edgecolor='gray'))
         
         # Enhanced spike timing info
         if spikes:
@@ -876,16 +913,13 @@ class SARIMAVisualizer:
 
 # Enhanced main function
 def main():
-    """Enhanced main function with grace period for spike detection"""
     forecaster = SARIMAForecaster()
     forecaster.load_data()
-    
-    # Analyze data characteristics
     forecaster.analyze_data_characteristics()
     forecaster.prepare_transformed_data(method='auto')
     
     # Use spike-focused optimization
-    results_df = forecaster.optimize_parameters_for_spikes()
+    forecaster.optimize_parameters_for_spikes()
     
     if forecaster.best_params:
         # Generate forecast with pattern awareness
@@ -898,7 +932,6 @@ def main():
         enhanced_forecast = forecaster.predict_spike_pattern(forecast_data, enhanced_df)
         forecast_data['forecast'] = enhanced_forecast
         
-        # Detect spikes with grace period (30 seconds)
         grace_period = 60  # seconds
         spikes = forecaster.detect_spikes_in_forecast_improved(forecast_data, grace_period_seconds=grace_period)
         

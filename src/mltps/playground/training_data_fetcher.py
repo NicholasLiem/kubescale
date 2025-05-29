@@ -7,8 +7,8 @@ import requests
 
 today = datetime.now()
 
-start_time = today.replace(hour=20, minute=24, second=0, microsecond=0)
-end_time = today.replace(hour=21, minute=18, second=0, microsecond=0)
+start_time = today.replace(hour=19, minute=7, second=0, microsecond=0)
+end_time = today.replace(hour=20, minute=3, second=0, microsecond=0)
 
 start_timestamp = int(start_time.timestamp())
 end_timestamp = int(end_time.timestamp())
@@ -37,7 +37,7 @@ df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
 df = df.set_index('timestamp')
 
 # Save to CSV if needed
-df.to_csv('training_data_v2.csv')
+df.to_csv('training_data_pattern.csv')
 
 print(df.head())
 
