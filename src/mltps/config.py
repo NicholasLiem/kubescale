@@ -17,10 +17,10 @@ class Config:
         
         # Prediction settings
         "update_interval_seconds": 60,
-        "prediction_window_size": 12,
+        "prediction_window_size": 40,
         "model_update_interval_minutes": 10,
         "confidence_threshold": 0.7,
-        "min_training_points": 15,
+        "min_training_points": 200,
         
         # Advanced model parameters
         "arima_order": [3, 1, 1],
