@@ -1,11 +1,19 @@
+import base64
+from datetime import timedelta
+from io import BytesIO
+from itertools import product
 import logging
 import numpy as np
 import time
 from scipy import stats
 import pandas as pd
 from typing import Optional, Tuple
+from tqdm import tqdm
 from statsmodels.tsa.statespace.sarimax import SARIMAX
-from itertools import product
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
 from services.metrics_transformer_service import MetricsTransformerService
 
 logger = logging.getLogger("mltps")
@@ -41,7 +49,6 @@ class PredictionService:
         self.history = pd.DataFrame()
         self.last_update = 0
         self.last_prediction = None
-        self.prediction_history = []
         
         # SARIMAX model state
         self.raw_df = None
@@ -54,36 +61,35 @@ class PredictionService:
         
         logger.info("PredictionService initialized with CPU usage metrics. Waiting for sufficient data collection...")
     
-    def update_settings(self, 
-                        update_interval_seconds: Optional[int] = None,
-                        window_size: Optional[int] = None,
-                        confidence_threshold: Optional[float] = None,
-                        model_update_interval_minutes: Optional[int] = None,
-                        min_training_points: Optional[int] = None):
-        """
-        Update service settings at runtime
+    #
+    # DATA ANALYTICS
+    # 
+
+    def transform_data(self, series, method='log'):
+        """Transform data to make it more suitable for ARIMA modeling"""
+        if method == 'log':
+            return np.log1p(series)
+        elif method == 'sqrt':
+            return np.sqrt(series)
+        elif method == 'boxcox':
+            transformed, lmbda = stats.boxcox(series + 1)
+            return transformed, lmbda
+        return series
+    
+    def inverse_transform(self, series, method=None, boxcox_lambda=None):
+        """Inverse transform the predictions"""
+        method = method or self.transform_method
+        boxcox_lambda = boxcox_lambda or self.boxcox_lambda
         
-        Args:
-            update_interval_seconds: Interval between predictions
-            window_size: Number of intervals to predict ahead
-            confidence_threshold: Minimum confidence threshold for spike detection
-            model_update_interval_minutes: How often to update the model
-            min_training_points: Minimum number of data points required for initial training
-        """
-        if update_interval_seconds is not None:
-            self.update_interval_seconds = update_interval_seconds
-        if window_size is not None:
-            self.window_size = window_size
-        if confidence_threshold is not None:
-            self.confidence_threshold = confidence_threshold
-        if model_update_interval_minutes is not None:
-            self.model_update_interval_minutes = model_update_interval_minutes
-        if min_training_points is not None:
-            self.min_training_points = min_training_points
-            
-        logger.info(f"PredictionService settings updated: interval={self.update_interval_seconds}m, "
-                    f"window={self.window_size}, confidence={self.confidence_threshold}, "
-                    f"update={self.model_update_interval_minutes}m, min_points={self.min_training_points}")
+        if method == 'none':
+            return series
+        elif method == 'log':
+            return np.expm1(series)
+        elif method == 'sqrt':
+            return series ** 2
+        elif method == 'boxcox':
+            return stats.inv_boxcox(series, boxcox_lambda) - 1
+        return series
     
     def analyze_data_characteristics(self):
         """Analyze data to determine if transformation is needed"""
@@ -143,33 +149,11 @@ class PredictionService:
         logger.info(f"  Recommended Method: {recommended_method}")
         
         return self.data_characteristics
-    
-    def transform_data(self, series, method='log'):
-        """Transform data to make it more suitable for ARIMA modeling"""
-        if method == 'log':
-            return np.log1p(series)
-        elif method == 'sqrt':
-            return np.sqrt(series)
-        elif method == 'boxcox':
-            transformed, lmbda = stats.boxcox(series + 1)
-            return transformed, lmbda
-        return series
-    
-    def inverse_transform(self, series, method=None, boxcox_lambda=None):
-        """Inverse transform the predictions"""
-        method = method or self.transform_method
-        boxcox_lambda = boxcox_lambda or self.boxcox_lambda
-        
-        if method == 'none':
-            return series
-        elif method == 'log':
-            return np.expm1(series)
-        elif method == 'sqrt':
-            return series ** 2
-        elif method == 'boxcox':
-            return stats.inv_boxcox(series, boxcox_lambda) - 1
-        return series
-    
+
+    # 
+    # DATA MANIPULATION
+    # 
+
     def prepare_transformed_data(self, method='auto'):
         """Prepare dataset with optional transformation"""
         if self.raw_df is None or self.raw_df.empty:
@@ -205,119 +189,38 @@ class PredictionService:
             self.boxcox_lambda = None
             
         self.transformed_df = pd.DataFrame(
-            {'value': transformed_data}, 
+            {'total': transformed_data}, 
             index=self.raw_df.index
         )
         
         logger.info(f"Data transformed using method: {method}")
         return True
     
+    def split_data(self, train_ratio=0.8):
+        """Split data into training and testing sets"""
+        train_size = int(len(self.transformed_df) * train_ratio)
+        train_data = self.transformed_df.iloc[:train_size]
+        test_data = self.transformed_df.iloc[train_size:]
+        return train_data, test_data
+
+    # 
+    # MODEL FITTING
+    # 
+
     def fit_sarima_model(self, train_data, order, seasonal_order):
         """Fit SARIMA model with given parameters"""
         model = SARIMAX(
-            train_data['value'],
+            train_data['total'],
             order=order,
             seasonal_order=seasonal_order,
             enforce_stationarity=False,
             enforce_invertibility=False
         )
-        return model.fit(disp=False, maxiter=50)
+        return model.fit(disp=False, maxiter=25)
     
-    def calculate_metrics_improved(self, forecast_orig, test_actual):
-        """Enhanced metrics calculation that preserves spike characteristics"""
-        rmse = np.sqrt(np.mean((forecast_orig - test_actual) ** 2))
-        mae = np.mean(np.abs(forecast_orig - test_actual))
-        
-        # Use adaptive thresholds based on data characteristics
-        original_data = self.raw_df['total'] if 'total' in self.raw_df.columns else self.raw_df.iloc[:, 0]
-        data_stats = {
-            'median': original_data.median(),
-            'mean': original_data.mean(),
-            'std': original_data.std(),
-            'q75': np.percentile(original_data, 75),
-            'q90': np.percentile(original_data, 90),
-            'q95': np.percentile(original_data, 95),
-            'q99': np.percentile(original_data, 99)
-        }
-        
-        # Multiple threshold strategies
-        threshold_strategies = {
-            'conservative': data_stats['q99'],
-            'moderate': data_stats['q95'],
-            'liberal': data_stats['q90'],
-            'statistical': data_stats['mean'] + 2 * data_stats['std'],
-            'robust': data_stats['median'] + 2 * data_stats['std']
-        }
-        
-        # best_strategy = None
-        best_accuracy = 0
-        best_result = None
-        
-        for strategy_name, threshold in threshold_strategies.items():
-            # Find spikes with current threshold
-            test_spikes = self._find_spikes_adaptive(test_actual.values, threshold)
-            pred_spikes = self._find_spikes_adaptive(forecast_orig, threshold)
-            
-            if len(test_spikes) > 0:  # Only evaluate if there are actual spikes
-                spike_matches = self._count_spike_matches_improved(pred_spikes, test_spikes, tolerance=3)
-                spike_accuracy = spike_matches / len(test_spikes)
-                
-                if spike_accuracy > best_accuracy:
-                    best_accuracy = spike_accuracy
-                    best_strategy = strategy_name
-                    best_result = {
-                        'threshold': threshold,
-                        'actual_spikes': len(test_spikes),
-                        'predicted_spikes': len(pred_spikes),
-                        'spike_accuracy': spike_accuracy
-                    }
-        
-        if best_result is None:
-            # Fallback if no spikes found
-            threshold = data_stats['q95']
-            test_spikes = self._find_spikes_adaptive(test_actual.values, threshold)
-            pred_spikes = self._find_spikes_adaptive(forecast_orig, threshold)
-            best_result = {
-                'threshold': threshold,
-                'actual_spikes': len(test_spikes),
-                'predicted_spikes': len(pred_spikes),
-                'spike_accuracy': 0
-            }
-        
-        return {
-            'rmse': rmse,
-            'mae': mae,
-            'spike_accuracy': best_result['spike_accuracy'],
-            'actual_spikes': best_result['actual_spikes'],
-            'predicted_spikes': best_result['predicted_spikes'],
-            'best_threshold': best_result['threshold'],
-            'transform_method': self.transform_method
-        }
-    
-    def _find_spikes_adaptive(self, data, threshold):
-        """Adaptive spike detection with context awareness"""
-        spikes = []
-        min_spike_duration = 1  # Minimum duration for a spike
-        min_gap = 2  # Minimum gap between separate spikes
-        
-        i = 0
-        while i < len(data):
-            if data[i] > threshold:
-                spike_start = i
-                # Find the end of the spike
-                while i < len(data) and data[i] > threshold:
-                    i += 1
-                spike_duration = i - spike_start
-                
-                # Only consider spikes that meet minimum duration
-                if spike_duration >= min_spike_duration:
-                    # Check if this is far enough from the last spike
-                    if not spikes or spike_start - spikes[-1] >= min_gap:
-                        spikes.append(spike_start)
-            else:
-                i += 1
-        
-        return spikes
+    # 
+    # FORECAST AND SPIKE DETECTION IN FORECAST
+    # 
     
     def _count_spike_matches_improved(self, pred_spikes, actual_spikes, tolerance=3):
         """Improved spike matching with better tolerance handling"""
@@ -344,9 +247,276 @@ class PredictionService:
         
         return matches
     
+    def forecast_future(self, steps=100):
+        """Generate future forecasts using the best model"""
+        if not self.best_params:
+            raise ValueError("No optimal parameters found. Run optimize_parameters() first.")
+        
+        order, seasonal_order = self.best_params
+        
+        # Retrain on full dataset
+        full_model = SARIMAX(
+            self.transformed_df['total'],
+            order=order,
+            seasonal_order=seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False
+        )
+        full_results = full_model.fit(disp=False)
+        
+        # Generate forecast
+        forecast_index = pd.date_range(
+            start=self.raw_df.index[-1] + timedelta(seconds=15),
+            periods=steps,
+            freq='15S'
+        )
+        
+        forecast = full_results.forecast(steps=steps)
+        pred = full_results.get_forecast(steps=steps)
+        ci = pred.conf_int(alpha=0.05)
+        
+        # Transform back to original scale
+        forecast_orig = self.inverse_transform(forecast)
+        ci_orig_lower = self.inverse_transform(ci.iloc[:, 0])
+        ci_orig_upper = self.inverse_transform(ci.iloc[:, 1])
+        
+        return {
+            'forecast_index': forecast_index,
+            'forecast': forecast_orig,
+            'ci_lower': ci_orig_lower,
+            'ci_upper': ci_orig_upper,
+            'model_results': full_results
+        }
+
+    def detect_spikes_in_forecast_improved(self, forecast_data, grace_period_seconds=60):
+        """Enhanced spike detection with better threshold separation"""
+        logger.info("DEBUG: Starting spike detection with grace period...")
+        
+        # Calculate grace period in data points (15-second intervals)
+        grace_period_points = int(grace_period_seconds / 15)
+        logger.info(f"DEBUG: Grace period: {grace_period_seconds} seconds ({grace_period_points} data points)")
+        
+        # Safety check for raw_df
+        if self.raw_df is None or self.raw_df.empty:
+            logger.warning("No raw data available for spike detection")
+            return []
+        
+        baseline_value = self.raw_df['total'].median()
+        
+        small_spike_threshold = baseline_value * 1.1
+        big_spike_threshold = baseline_value * 1.8
+        
+        logger.info(f"DEBUG: Small threshold: {small_spike_threshold:.2f}, Big threshold: {big_spike_threshold:.2f}")
+        
+        all_spikes = []
+        
+        # Safety check for forecast data
+        if 'forecast' not in forecast_data or forecast_data['forecast'] is None:
+            logger.warning("No forecast data available for spike detection")
+            return []
+        
+        # Find all peaks above small spike threshold, but exclude grace period
+        peak_indices = np.where(forecast_data['forecast'] > small_spike_threshold)[0]
+        valid_peak_indices = peak_indices[peak_indices >= grace_period_points]
+        
+        logger.info(f"DEBUG: Found {len(peak_indices)} total peaks, {len(valid_peak_indices)} peaks after grace period")
+        
+        if len(valid_peak_indices) > 0:
+            spike_groups = self._group_consecutive_peaks(valid_peak_indices, max_gap=3)
+            
+            for i, group in enumerate(spike_groups):
+                peak_idx = group[np.argmax(forecast_data['forecast'][group])]
+                spike_value = forecast_data['forecast'][peak_idx]
+                spike_time = forecast_data['forecast_index'][peak_idx]
+                
+                time_from_now = (spike_time - self.raw_df.index[-1]).total_seconds()
+                if time_from_now < grace_period_seconds:
+                    continue
+                
+                # Better spike classification based on your pattern
+                if spike_value > big_spike_threshold:
+                    spike_type = "BIG"
+                elif spike_value > small_spike_threshold:
+                    spike_type = "SMALL"
+                else:
+                    continue  # Skip if below small threshold
+                
+                spike_info = {
+                    'index': peak_idx,
+                    'time': spike_time,
+                    'value': spike_value,
+                    'spike_id': len(all_spikes) + 1,
+                    'type': spike_type,
+                    'time_from_now': time_from_now
+                }
+                all_spikes.append(spike_info)
+                logger.info(f"DEBUG: {spike_type} Spike {spike_info['spike_id']} - "
+                      f"Value: {spike_value:.2f}, Threshold ratio: {spike_value/baseline_value:.2f}x")
+    
+        if not all_spikes:
+            logger.info("DEBUG: No absolute spikes found, using relative peak detection")
+            try:
+                from scipy.signal import find_peaks
+                
+                peaks, properties = find_peaks(
+                    forecast_data['forecast'], 
+                    height=np.percentile(forecast_data['forecast'], 75),
+                    prominence=np.std(forecast_data['forecast']) * 0.3,
+                    distance=2
+                )
+                
+                # Apply grace period to relative peaks
+                valid_relative_peaks = peaks[peaks >= grace_period_points]
+                
+                for i, peak_idx in enumerate(valid_relative_peaks):
+                    spike_value = forecast_data['forecast'][peak_idx]
+                    spike_time = forecast_data['forecast_index'][peak_idx]
+                    time_from_now = (spike_time - self.raw_df.index[-1]).total_seconds()
+                    
+                    # Double-check grace period
+                    if time_from_now < grace_period_seconds:
+                        continue
+                    
+                    spike_info = {
+                        'index': peak_idx,
+                        'time': spike_time,
+                        'value': spike_value,
+                        'spike_id': len(all_spikes) + 1,
+                        'type': "SMALL",  # Default type
+                        'time_from_now': time_from_now
+                    }
+                    all_spikes.append(spike_info)
+                    logger.info(f"DEBUG: Relative Spike {len(all_spikes)} - Index: {peak_idx}, "
+                        f"Value: {spike_value:.2f}, Time from now: {time_from_now:.1f}s")
+                
+            except ImportError:
+                logger.info("DEBUG: scipy not available for relative peak detection")
+            except Exception as e:
+                logger.warning(f"DEBUG: Error in relative peak detection: {e}")
+    
+        logger.info(f"DEBUG: Final spike count: {len(all_spikes)}")
+        return all_spikes
+    
+    def _group_consecutive_peaks(self, peak_indices, max_gap=2):
+        """Group consecutive peaks together"""
+        if len(peak_indices) == 0:
+            return []
+        
+        groups = []
+        current_group = [peak_indices[0]]
+        
+        for i in range(1, len(peak_indices)):
+            if peak_indices[i] - peak_indices[i-1] <= max_gap:
+                current_group.append(peak_indices[i])
+            else:
+                groups.append(current_group)
+                current_group = [peak_indices[i]]
+        
+        groups.append(current_group)
+        return groups
+
+    def create_spike_features(self):
+        """Create additional features to help detect spike patterns"""
+        if self.raw_df is None or self.raw_df.empty:
+            logger.warning("No raw data available for spike features")
+            return pd.DataFrame()
+        
+        df = self.raw_df.copy()
+        
+        # Rolling statistics to capture local patterns
+        df['rolling_mean_5'] = df['total'].rolling(window=5).mean()
+        df['rolling_std_5'] = df['total'].rolling(window=5).std()
+        df['rolling_max_5'] = df['total'].rolling(window=5).max()
+        
+        # Detect previous spikes to create pattern features
+        threshold = df['total'].quantile(0.95)
+        df['is_spike'] = (df['total'] > threshold).astype(int)
+        
+        # Create lag features for spike pattern
+        df['prev_spike_1'] = df['is_spike'].shift(1)
+        df['prev_spike_2'] = df['is_spike'].shift(2)
+        df['prev_spike_3'] = df['is_spike'].shift(3)
+        
+        # Create alternating pattern feature
+        df['spike_magnitude'] = np.where(df['is_spike'] == 1, 
+                                       np.where(df['total'] > df['total'].quantile(0.98), 2, 1), 0)
+        
+        # Pattern state: 0=normal, 1=small spike expected, 2=big spike expected
+        df['pattern_state'] = 0
+        for i in range(3, len(df)):
+            if df.iloc[i-1]['spike_magnitude'] == 1:  # Previous was small spike
+                df.iloc[i, df.columns.get_loc('pattern_state')] = 2  # Expect big spike
+            elif df.iloc[i-1]['spike_magnitude'] == 2:  # Previous was big spike
+                df.iloc[i, df.columns.get_loc('pattern_state')] = 1  # Expect small spike
+    
+        return df
+
+    def predict_spike_pattern(self, forecast_data, enhanced_df):
+        """Enhanced spike prediction with proper alternating pattern"""
+        if 'forecast' not in forecast_data or forecast_data['forecast'] is None:
+            logger.warning("No forecast data available for spike pattern prediction")
+            return np.array([])
+        
+        if enhanced_df is None or enhanced_df.empty:
+            logger.warning("No enhanced features available, returning original forecast")
+            return forecast_data['forecast'].copy()
+        
+        base_forecast = forecast_data['forecast'].copy()
+        
+        # Analyze recent spike pattern
+        recent_data = enhanced_df.tail(40)  # Look at more history
+        spike_pattern = recent_data['spike_magnitude'].values
+        
+        # Find the most recent spike type
+        last_spike_type = 0
+        last_spike_index = -1
+        
+        for i in range(len(spike_pattern)-1, -1, -1):
+            if spike_pattern[i] > 0:
+                last_spike_type = spike_pattern[i]
+                last_spike_index = i
+                break
+
+        logger.info(f"DEBUG: Last spike type: {last_spike_type} at index {last_spike_index}")
+        
+        # Don't over-amplify - use subtle adjustments
+        enhanced_forecast = base_forecast.copy()
+        
+        if self.raw_df is None or self.raw_df.empty:
+            logger.warning("No raw data for baseline calculation")
+            return enhanced_forecast
+        
+        baseline = self.raw_df['total'].median()
+        
+        # Look for potential spike locations in forecast
+        for i, value in enumerate(base_forecast):
+            # Only adjust if value is already elevated
+            if value > baseline * 1.2:  # 20% above baseline
+                if last_spike_type == 1:  # Last was small, next should be big
+                    # Slightly increase prediction for big spike
+                    enhanced_forecast[i] = value * 1.2
+                    logger.info(f"DEBUG: Enhancing prediction at {i} for expected BIG spike (1.2x)")
+                    last_spike_type = 2
+                elif last_spike_type == 2:  # Last was big, next should be small  
+                    # Slightly decrease prediction for small spike
+                    enhanced_forecast[i] = value * 0.9
+                    logger.info(f"DEBUG: Reducing prediction at {i} for expected SMALL spike (0.9x)")
+                    last_spike_type = 1
+                else:
+                    # First spike, assume small
+                    enhanced_forecast[i] = value * 0.95
+                    last_spike_type = 1
+                break  # Only adjust first spike found
+
+        return enhanced_forecast
+    
+    #
+    # PARAMETER OPTIMIZING FOR SPIKES
+    # 
+
     def optimize_parameters_for_spikes(self):
-        """Quick parameter optimization with minimal combinations for faster initialization"""
-        logger.info("Starting quick parameter optimization...")
+        """Parameter optimization with minimal combinations for faster initialization"""
+        logger.info("Starting parameter optimization...")
         
         if self.transformed_df is None or self.transformed_df.empty:
             logger.error("No transformed data available for optimization")
@@ -357,65 +527,51 @@ class PredictionService:
         train_data = self.transformed_df.iloc[:train_size]
         test_data = self.transformed_df.iloc[train_size:]
         
-        # Minimal parameter combinations for quick initialization (only 8 combinations)
-        quick_param_combinations = [
-            # Simple models first (faster convergence)
-            ((1, 1, 1), (0, 1, 0, 12)),  # Basic ARIMA with seasonal
-            ((2, 1, 1), (1, 1, 0, 12)),  # Slightly more complex
-            ((1, 1, 2), (0, 1, 1, 12)),  # Different MA structure
-            ((2, 1, 2), (1, 1, 1, 12)),  # Balanced approach
-            
-            # Spike-focused patterns
-            ((3, 1, 1), (0, 1, 0, 20)),  # Higher AR for spike dependencies
-            ((1, 1, 3), (0, 1, 1, 20)),  # Higher MA for smoothing
-            ((2, 1, 2), (1, 1, 1, 20)),  # Balanced with longer seasonality
-            ((3, 1, 2), (1, 1, 0, 40)),  # Complex for detailed patterns
-        ]
+        param_ranges = {
+            'p': [3, 5, 7],  # Higher AR terms to capture spike dependencies
+            'd': [0, 1],
+            'q': [1, 2],  # Higher MA terms for pattern smoothing
+            'P': [0, 1],     # Seasonal AR for pattern repetition
+            'D': [1],
+            'Q': [1],     # Seasonal MA
+            's': [40]
+        }
+
+        param_combinations = list(product(
+            param_ranges['p'], param_ranges['d'], param_ranges['q'],
+            param_ranges['P'], param_ranges['D'], param_ranges['Q'], param_ranges['s']
+        ))
         
         best_score = float('-inf')
         results = []
         
-        logger.info(f"Testing {len(quick_param_combinations)} optimized parameter combinations...")
-        
-        start_time = time.time()
-        timeout_seconds = 30  # Maximum 30 seconds for optimization
-        
-        for i, (order, seasonal_order) in enumerate(quick_param_combinations):
-            # Check timeout
-            if time.time() - start_time > timeout_seconds:
-                logger.warning(f"Parameter optimization timeout after {timeout_seconds}s")
-                break
-                
+        for params in tqdm(param_combinations[:50], desc="Testing spike-focused parameters"):  # Limit for speed
+            p, d, q, P, D, Q, s = params
+            order = (p, d, q)
+            seasonal_order = (P, D, Q, s)
+            
             try:
-                # Quick fit with reduced iterations
-                fitted = self.fit_sarima_model_quick(train_data, order, seasonal_order)
-                if fitted is None:
-                    logger.debug(f"Failed to fit {order}x{seasonal_order}")
-                    continue
-                    
+                fitted = self.fit_sarima_model(train_data, order, seasonal_order)
                 forecast = fitted.forecast(steps=len(test_data))
                 forecast_orig = self.inverse_transform(forecast)
+                test_actual = self.raw_df.iloc[len(train_data):len(train_data)+len(test_data)]['total']
                 
-                # Get original scale test data
-                original_test_start = train_size
-                original_test_end = original_test_start + len(test_data)
-                original_data = self.raw_df['total'] if 'total' in self.raw_df.columns else self.raw_df.iloc[:, 0]
-                test_actual = original_data.iloc[original_test_start:original_test_end]
+                # Enhanced metrics that heavily weight pattern detection
+                metrics = self.calculate_pattern_metrics(forecast_orig, test_actual)
                 
-                # Quick metrics calculation (simplified)
-                rmse = np.sqrt(np.mean((forecast_orig - test_actual) ** 2))
-                mae = np.mean(np.abs(forecast_orig - test_actual))
-                
-                # Simple scoring for quick evaluation
-                combined_score = 1 / (1 + rmse + mae)  # Simple inverse error score
+                # Score heavily weighted towards pattern accuracy
+                combined_score = (
+                    0.8 * metrics['pattern_accuracy'] +
+                    0.2 * metrics['spike_accuracy'] - 
+                    0.1 * (metrics['rmse'] / 100)
+                )
                 
                 result = {
                     'order': order,
                     'seasonal_order': seasonal_order,
                     'aic': fitted.aic,
                     'combined_score': combined_score,
-                    'rmse': rmse,
-                    'mae': mae
+                    **metrics
                 }
                 results.append(result)
                 
@@ -424,84 +580,176 @@ class PredictionService:
                     self.best_params = (order, seasonal_order)
                     self.best_model = fitted
                     
-                logger.debug(f"✓ {i+1}/{len(quick_param_combinations)}: {order}x{seasonal_order} "
-                            f"(score: {combined_score:.3f}, rmse: {rmse:.3f})")
-                    
             except Exception as e:
-                logger.debug(f"✗ Error with {order}x{seasonal_order}: {e}")
                 continue
-        
-        # Fallback to simplest model if nothing worked
-        if not results or self.best_params is None:
-            logger.warning("No parameters worked, using simple fallback")
-            self.best_params = ((1, 1, 1), (0, 1, 0, 12))
-            return None
-        
-        if results:
-            results_df = pd.DataFrame(results).sort_values('combined_score', ascending=False)
-            logger.info("Top 3 Quick Parameter Results:")
-            for i, row in results_df.head(3).iterrows():
-                logger.info(f"  {row['order']}x{row['seasonal_order']}: "
-                           f"Score={row['combined_score']:.3f}, RMSE={row['rmse']:.3f}")
-            
-            elapsed_time = time.time() - start_time
-            logger.info(f"✅ Quick optimization complete in {elapsed_time:.1f}s")
-            logger.info(f"Best parameters: SARIMA{self.best_params[0]}x{self.best_params[1]}")
-            
-            return results_df
-        else:
-            logger.warning("No valid parameter combinations found")
-            return None
-
-    def fit_sarima_model_quick(self, train_data, order, seasonal_order):
-        """Quick SARIMA model fitting with timeout and reduced iterations"""
-        try:
-            model = SARIMAX(
-                train_data['value'],
-                order=order,
-                seasonal_order=seasonal_order,
-                enforce_stationarity=False,
-                enforce_invertibility=False
-            )
-            # Reduced iterations for faster fitting
-            fitted = model.fit(disp=False, maxiter=20, method='lbfgs')
-            return fitted
-        except Exception as e:
-            logger.debug(f"Quick fit failed for {order}x{seasonal_order}: {e}")
-            return None
-
-    def fit_sarima_model(self, train_data, order, seasonal_order):
-        """Standard SARIMA model fitting (for regular updates)"""
-        model = SARIMAX(
-            train_data['value'],
-            order=order,
-            seasonal_order=seasonal_order,
-            enforce_stationarity=False,
-            enforce_invertibility=False
-        )
-        return model.fit(disp=False, maxiter=50)
-
-    def calculate_metrics_simple(self, forecast_orig, test_actual):
-        """Simplified metrics calculation for quick optimization"""
+    
+        return pd.DataFrame(results).sort_values('combined_score', ascending=False)
+    
+    def calculate_pattern_metrics(self, forecast_orig, test_actual):
+        """Calculate metrics specifically for alternating spike patterns"""
         rmse = np.sqrt(np.mean((forecast_orig - test_actual) ** 2))
         mae = np.mean(np.abs(forecast_orig - test_actual))
         
-        # Quick spike detection using simple threshold
-        threshold = np.percentile(test_actual, 90)
-        actual_spikes = len(test_actual[test_actual > threshold])
-        pred_spikes = len(forecast_orig[forecast_orig > threshold])
+        # Detect spike patterns in both series
+        threshold = self.raw_df['total'].quantile(0.95)
         
-        spike_accuracy = 1.0 if actual_spikes == 0 else min(pred_spikes, actual_spikes) / actual_spikes
+        actual_spikes = self._classify_spikes(test_actual, threshold)
+        pred_spikes = self._classify_spikes(forecast_orig, threshold)
+        
+        # Calculate pattern accuracy (small-big-small-big sequence)
+        pattern_accuracy = self._calculate_pattern_accuracy(actual_spikes, pred_spikes)
+        
+        # Regular spike accuracy
+        spike_matches = self._count_spike_matches_improved(
+            [i for i, _ in pred_spikes], 
+            [i for i, _ in actual_spikes], 
+            tolerance=3
+        )
+        spike_accuracy = spike_matches / max(len(actual_spikes), 1) if actual_spikes else 0
         
         return {
             'rmse': rmse,
             'mae': mae,
             'spike_accuracy': spike_accuracy,
-            'actual_spikes': actual_spikes,
-            'predicted_spikes': pred_spikes
+            'pattern_accuracy': pattern_accuracy,
+            'actual_spikes': len(actual_spikes),
+            'predicted_spikes': len(pred_spikes)
         }
 
-    # Update the main update_model method to use quick optimization for initialization
+    def _classify_spikes(self, data, threshold):
+        """Classify spikes as small (1) or big (2)"""
+        spikes = []
+        big_threshold = threshold * 1.2  # 20% higher for "big" spikes
+        
+        for i, value in enumerate(data):
+            if value > big_threshold:
+                spikes.append((i, 2))  # Big spike
+            elif value > threshold:
+                spikes.append((i, 1))  # Small spike
+        
+        return spikes
+
+    def _calculate_pattern_accuracy(self, actual_spikes, pred_spikes):
+        """Calculate how well the alternating pattern is predicted"""
+        if len(actual_spikes) < 2 or len(pred_spikes) < 2:
+            return 0
+        
+        # Get pattern sequences
+        actual_pattern = [magnitude for _, magnitude in actual_spikes]
+        pred_pattern = [magnitude for _, magnitude in pred_spikes]
+        
+        # Check for alternating pattern in actual data
+        actual_alternates = self._check_alternating_pattern(actual_pattern)
+        pred_alternates = self._check_alternating_pattern(pred_pattern)
+        
+        if actual_alternates and pred_alternates:
+            # Both have alternating patterns - calculate similarity
+            min_len = min(len(actual_pattern), len(pred_pattern))
+            matches = sum(1 for i in range(min_len) if actual_pattern[i] == pred_pattern[i])
+            return matches / min_len
+        elif actual_alternates or pred_alternates:
+            # Only one has alternating pattern
+            return 0.5
+        else:
+            # Neither has clear alternating pattern
+            return 0.3
+
+    def _check_alternating_pattern(self, pattern):
+        """Check if pattern alternates between small(1) and big(2) spikes"""
+        if len(pattern) < 3:
+            return False
+        
+        alternating_count = 0
+        for i in range(len(pattern) - 1):
+            if pattern[i] != pattern[i + 1]:
+                alternating_count += 1
+        
+        # Pattern alternates if at least 60% of transitions are different
+        return alternating_count / (len(pattern) - 1) >= 0.6
+    
+    # 
+    # 
+    # 
+
+    def detect_spikes_in_forecast_improved(self, forecast_data, grace_period_seconds=60):
+        """Enhanced spike detection with better threshold separation"""
+        logger.info("DEBUG: Starting spike detection with grace period...")
+        
+        # Calculate grace period in data points (15-second intervals)
+        grace_period_points = int(grace_period_seconds / 15)
+        logger.info(f"DEBUG: Grace period: {grace_period_seconds} seconds ({grace_period_points} data points)")
+        
+        # Safety check for raw_df
+        if self.raw_df is None or self.raw_df.empty:
+            logger.warning("No raw data available for spike detection")
+            return []
+        
+        baseline_value = self.raw_df['total'].median()
+        
+        small_spike_threshold = baseline_value * 1.1
+        big_spike_threshold = baseline_value * 1.8
+        
+        logger.info(f"DEBUG: Small threshold: {small_spike_threshold:.2f}, Big threshold: {big_spike_threshold:.2f}")
+        
+        all_spikes = []
+        
+        # Safety check for forecast data
+        if 'forecast' not in forecast_data or forecast_data['forecast'] is None:
+            logger.warning("No forecast data available for spike detection")
+            return []
+        
+        # Find all peaks above small spike threshold, but exclude grace period
+        peak_indices = np.where(forecast_data['forecast'] > small_spike_threshold)[0]
+        valid_peak_indices = peak_indices[peak_indices >= grace_period_points]
+        
+        logger.info(f"DEBUG: Found {len(peak_indices)} total peaks, {len(valid_peak_indices)} peaks after grace period")
+        
+        if len(valid_peak_indices) > 0:
+            spike_groups = self._group_consecutive_peaks(valid_peak_indices, max_gap=3)
+            
+            for i, group in enumerate(spike_groups):
+                peak_idx = group[np.argmax(forecast_data['forecast'][group])]
+                spike_value = forecast_data['forecast'][peak_idx]
+                spike_time = forecast_data['forecast_index'][peak_idx]
+                
+                time_from_now = (spike_time - self.raw_df.index[-1]).total_seconds()
+                if time_from_now < grace_period_seconds:
+                    continue
+                
+                # Better spike classification based on your pattern
+                if spike_value > big_spike_threshold:
+                    spike_type = "BIG"
+                elif spike_value > small_spike_threshold:
+                    spike_type = "SMALL"
+                else:
+                    continue  # Skip if below small threshold
+                
+                spike_info = {
+                    'index': peak_idx,
+                    'time': spike_time,
+                    'value': spike_value,
+                    'spike_id': len(all_spikes) + 1,
+                    'type': spike_type,
+                    'time_from_now': time_from_now
+                }
+                all_spikes.append(spike_info)
+                logger.info(f"DEBUG: {spike_type} Spike {spike_info['spike_id']} - "
+                      f"Value: {spike_value:.2f}, Threshold ratio: {spike_value/baseline_value:.2f}x")
+    
+    #
+    # MODEL INITIALIZATION AND UPDATE
+    #
+
+    def initialize_model(self) -> bool:
+        """
+        Initialize model by calling update_model
+        """
+        if self.is_initialized:
+            return True
+        
+        logger.info("Initializing CPU prediction model...")
+        return self.update_model()
+
     def update_model(self, force_refresh=False) -> bool:
         """Update SARIMAX model with latest CPU usage data"""
         current_time = time.time()
@@ -514,7 +762,7 @@ class PredictionService:
 
         logger.info(f"🔄 Fetching latest CPU data from Prometheus...")
         
-        # Get historical data (15s resolution to better capture 30s spikes)
+        # Load Data
         raw_data = self.metrics_service.get_prometheus_data(
             query='sum(rate(container_cpu_usage_seconds_total{namespace="default", pod=~"s[0-2].*|gw-nginx.*"}[1m])) by (pod)',
             step='15s'
@@ -552,71 +800,50 @@ class PredictionService:
                 logger.info(f"Collecting initial CPU training data: {len(prepared_df)}/{self.min_training_points} points")
                 return False
             
-            # For initialization, perform QUICK optimization
             if not self.is_initialized:
-                logger.info("Performing quick model initialization...")
+                logger.info("Performing model initialization...")
                 
-                # Analyze data characteristics
                 self.analyze_data_characteristics()
                 
-                # Prepare transformed data
-                if not self.prepare_transformed_data(method='auto'):
-                    logger.error("Failed to prepare transformed data")
-                    return False
+                self.prepare_transformed_data(method='auto')
                 
-                # QUICK optimization for spike detection (only 8 combinations, 30s max)
-                optimization_results = self.optimize_parameters_for_spikes()
+                self.optimize_parameters_for_spikes()
                 
                 if self.best_params is None:
-                    logger.warning("Quick optimization failed, using simple default")
+                    logger.warning("Optimization failed, using simple default")
                     self.best_params = ((1, 1, 1), (0, 1, 0, 12))
                 
-                # Train the final model with best parameters
-                try:
-                    order, seasonal_order = self.best_params
-                    final_model = SARIMAX(
-                        self.transformed_df['value'],
-                        order=order,
-                        seasonal_order=seasonal_order,
-                        enforce_stationarity=False,
-                        enforce_invertibility=False
-                    )
-                    self.best_model = final_model.fit(disp=False, maxiter=30)  # Quick fit
-                    
-                    self.is_initialized = True
-                    self.last_update = current_time
-                    
-                    logger.info(f"✅ Quick CPU model initialization complete:")
-                    logger.info(f"  - Data points: {len(prepared_df)}")
-                    logger.info(f"  - Transform method: {self.transform_method}")
-                    logger.info(f"  - Parameters: SARIMA{order}x{seasonal_order}")
-                    
-                    return True
-                    
-                except Exception as e:
-                    logger.error(f"Error training quick SARIMA model: {e}")
-                    return False
-            
+                forecast_data = self.forecast_future(steps=100)
+
+                enhanced_df = self.create_spike_features()
+
+                enhanced_forecast = self.predict_spike_pattern(forecast_data, enhanced_df)
+                forecast_data['forecast'] = enhanced_forecast
+                
+                grace_period = 60  # seconds
+                self.detect_spikes_in_forecast_improved(forecast_data, grace_period_seconds=grace_period)
+
+                self.is_initialized = True
+                self.last_update = current_time
+                return True
             else:
                 # For updates, retrain with existing parameters on new data
                 logger.info("📈 Updating model with fresh data...")
                 
                 # Update transformed data with same method
-                if not self.prepare_transformed_data(method=self.transform_method):
-                    logger.error("Failed to update transformed data")
-                    return False
+                self.prepare_transformed_data(method=self.transform_method)
                 
                 # Retrain model with existing best parameters
                 try:
                     order, seasonal_order = self.best_params
                     updated_model = SARIMAX(
-                        self.transformed_df['value'],
+                        self.transformed_df['total'],
                         order=order,
                         seasonal_order=seasonal_order,
                         enforce_stationarity=False,
                         enforce_invertibility=False
                     )
-                    self.best_model = updated_model.fit(disp=False, maxiter=30)  # Quick refit
+                    self.best_model = updated_model.fit(disp=False, maxiter=25)
                     
                     self.last_update = current_time
                     logger.info(f"✅ Model updated with {len(prepared_df)} data points")
@@ -630,17 +857,7 @@ class PredictionService:
         except Exception as e:
             logger.error(f"Error processing CPU metrics data for model update: {e}")
             return False
-
-    def initialize_model(self) -> bool:
-        """
-        Initialize model by calling update_model
-        """
-        if self.is_initialized:
-            return True
-        
-        logger.info("Initializing CPU prediction model...")
-        return self.update_model()
-        
+    
     def predict_traffic(self) -> Tuple[Optional[np.ndarray], float]:
         """Enhanced predict method using the optimized SARIMA model"""
         if not self.is_initialized:
@@ -666,7 +883,7 @@ class PredictionService:
             
             # Calculate confidence based on interval width
             ci_width = np.mean(confidence_intervals.iloc[:, 1] - confidence_intervals.iloc[:, 0])
-            max_possible_width = np.std(self.transformed_df['value']) * 4  # Rough estimate
+            max_possible_width = np.std(self.transformed_df['total']) * 4  # Rough estimate
             confidence = max(0.0, min(1.0, 1 - (ci_width / max_possible_width)))
             
             self.last_prediction = {
@@ -681,122 +898,174 @@ class PredictionService:
             logger.error(f"Error predicting CPU usage: {e}")
             return None, 0.0
         
-    def predict_traffic_extended(self, steps: int = 40) -> Tuple[Optional[np.ndarray], float]:
-        """
-        Extended predict method for custom number of steps
-        
-        Args:
-            steps: Number of future time steps to predict
-            
-        Returns:
-            Tuple of (forecast array, confidence score)
-        """
-        if not self.is_initialized:
-            logger.warning("Cannot predict: model not initialized")
-            return None, 0.0
-            
-        try:
-            if self.best_model is None:
-                logger.error("Best model is not available")
-                return None, 0.0
-            
-            # Generate forecast using the optimized model
-            forecast = self.best_model.forecast(steps=steps)
-            
-            # Get prediction intervals for confidence
-            pred = self.best_model.get_forecast(steps=steps)
-            confidence_intervals = pred.conf_int(alpha=0.05)  # 95% confidence
-            
-            # Transform back to original scale
-            forecast_orig = self.inverse_transform(forecast)
-            
-            # Calculate confidence based on interval width
-            ci_width = np.mean(confidence_intervals.iloc[:, 1] - confidence_intervals.iloc[:, 0])
-            max_possible_width = np.std(self.transformed_df['value']) * 4  # Rough estimate
-            confidence = max(0.0, min(1.0, 1 - (ci_width / max_possible_width)))
-            
-            # Store prediction for reference
-            self.last_prediction = {
-                "timestamp": time.time(),
-                "forecast": forecast_orig,
-                "confidence": confidence,
-                "steps": steps
-            }
-            
-            return np.array(forecast_orig), confidence
-            
-        except Exception as e:
-            logger.error(f"Error predicting traffic for {steps} steps: {e}")
-            return None, 0.0
-        
-    def detect_traffic_anomaly(self) -> dict:
-        """Unified method to detect both spikes and spike endings"""
-        result = {
-            "spike_detected": False,
-            "spike_ending": False,
-            "predicted_value": 0.0,
-            "current_value": 0.0,
-            "time_to_spike": 0,
-            "confidence": 0.0
-        }
-        
-        if not self.is_initialized or self.last_prediction is None or self.history.empty:
-            return result
-            
-        forecast = np.array(self.last_prediction["forecast"])
-        confidence = self.last_prediction["confidence"]
-        result["confidence"] = confidence
-        
-        # Get current CPU metrics
-        current_series = self._get_current_series()
-        if current_series is None:
-            return result
-            
-        current_avg = np.mean(current_series.astype(float).tail(10))
-        result["current_value"] = current_avg
-        
-        # Calculate baseline (normal traffic level)
-        baseline = np.percentile(current_series.astype(float).tail(60), 25)
-        max_forecast = np.max(forecast)
-        result["predicted_value"] = max_forecast
-        
-        # Configurable thresholds
-        SPIKE_THRESHOLD = 1.5  # 50% above current
-        ELEVATED_THRESHOLD = 1.3  # 30% above baseline
-        NORMAL_THRESHOLD = 1.2  # 20% above baseline
-        
-        # Check for spike
-        if (max_forecast > current_avg * SPIKE_THRESHOLD and 
-                confidence > self.confidence_threshold):
-            result["spike_detected"] = True
-            return result
-            
-        # Check for spike ending
-        current_is_elevated = current_avg > (baseline * ELEVATED_THRESHOLD)
-        forecast_trend = forecast[0] > forecast[-1]  # Decreasing trend
-        returning_to_normal = forecast[-1] < (baseline * NORMAL_THRESHOLD)
-        
-        if (current_is_elevated and forecast_trend and returning_to_normal and 
-                confidence > self.confidence_threshold * 0.8):
-            result["spike_ending"] = True
-            
-        return result
 
-    def _get_current_series(self):
-        """Get the appropriate data series from history"""
-        if self.history.empty:
+    # PLOTTING USES
+
+    def generate_forecast_plot(self, steps=100, figsize=(15, 10), include_confidence=True):
+        """Generate a comprehensive forecast visualization"""
+        if not self.is_initialized:
+            logger.warning("Model not initialized, cannot generate plot")
             return None
             
-        if 'total' in self.history.columns:
-            return self.history['total']
-        elif len(self.history.columns) > 0:
-            return self.history[self.history.columns[0]]
-        return None
-
-    def _get_training_values(self, prepared_df):
-        """Get training values from prepared DataFrame"""
-        if 'total' in prepared_df.columns:
-            return prepared_df['total'].values
-        elif len(prepared_df.columns) > 0:
-            return prepared_df[prepared_df.columns[0]].values
-        return np.array([])
+        try:
+            # Generate forecast data
+            forecast_data = self.forecast_future(steps=steps)
+            if not forecast_data or 'forecast' not in forecast_data:
+                logger.error("Failed to generate forecast data")
+                return None
+            
+            # Create enhanced features for spike detection
+            enhanced_df = self.create_spike_features()
+            
+            # Get enhanced forecast
+            enhanced_forecast = self.predict_spike_pattern(forecast_data, enhanced_df)
+            
+            # Ensure enhanced_forecast is valid
+            if enhanced_forecast is None or len(enhanced_forecast) == 0:
+                logger.warning("Enhanced forecast is empty, using original forecast")
+                enhanced_forecast = forecast_data['forecast']
+            
+            # Update forecast data with enhanced predictions
+            forecast_data['forecast'] = enhanced_forecast
+            
+            # Detect spikes in forecast
+            spikes = self.detect_spikes_in_forecast_improved(
+                forecast_data, grace_period_seconds=60
+            )
+            
+            # Ensure spikes is a list
+            if spikes is None:
+                spikes = []
+            
+            # Create the plot
+            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, height_ratios=[3, 1])
+            
+            # Main forecast plot
+            self._plot_main_forecast(ax1, forecast_data, spikes, include_confidence)
+            
+            # Spike detection details
+            self._plot_spike_details(ax2, spikes)
+            
+            plt.tight_layout()
+            
+            # Convert to base64
+            buffer = BytesIO()
+            plt.savefig(buffer, format='png', dpi=100, bbox_inches='tight')
+            buffer.seek(0)
+            
+            plot_data = base64.b64encode(buffer.getvalue()).decode()
+            plt.close(fig)  # Clean up
+            
+            return {
+                'plot_base64': plot_data,
+                'forecast_data': {
+                    'forecast_values': forecast_data['forecast'].tolist(),
+                    'forecast_times': [t.isoformat() for t in forecast_data['forecast_index']],
+                    'confidence_lower': forecast_data['ci_lower'].tolist() if include_confidence else None,
+                    'confidence_upper': forecast_data['ci_upper'].tolist() if include_confidence else None
+                },
+                'spikes': spikes,
+                'model_info': {
+                    'best_params': self.best_params,
+                    'transform_method': self.transform_method,
+                    'data_points': len(self.raw_df) if self.raw_df is not None else 0
+                }
+            }
+            
+        except Exception as e:
+            logger.error(f"Error generating forecast plot: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+        
+    def _plot_main_forecast(self, ax, forecast_data, spikes, include_confidence):
+        """Plot the main forecast with historical data"""
+        # Plot historical data
+        historical_data = self.raw_df.tail(50)  # Last 50 points for context
+        ax.plot(historical_data.index, historical_data['total'], 
+                'b-', label='Historical CPU Usage', linewidth=2, alpha=0.8)
+        
+        # Plot forecast
+        ax.plot(forecast_data['forecast_index'], forecast_data['forecast'], 
+                'r-', label='Forecast', linewidth=2)
+        
+        # Plot confidence intervals if requested
+        if include_confidence:
+            ax.fill_between(forecast_data['forecast_index'], 
+                          forecast_data['ci_lower'], 
+                          forecast_data['ci_upper'],
+                          alpha=0.3, color='red', label='95% Confidence Interval')
+        
+        # Mark spikes
+        for spike in spikes:
+            color = 'orange' if spike['type'] == 'SMALL' else 'red'
+            marker = 'o' if spike['type'] == 'SMALL' else '^'
+            size = 8 if spike['type'] == 'SMALL' else 12
+            
+            ax.scatter(spike['time'], spike['value'], 
+                      color=color, marker=marker, s=size**2, 
+                      label=f"{spike['type']} Spike" if spike['spike_id'] == 1 else "",
+                      zorder=5, edgecolors='black', linewidth=1)
+            
+            # Add spike labels
+            ax.annotate(f"S{spike['spike_id']}", 
+                       (spike['time'], spike['value']),
+                       xytext=(0, 15), textcoords='offset points',
+                       ha='center', va='bottom', fontsize=8,
+                       bbox=dict(boxstyle='round,pad=0.3', facecolor=color, alpha=0.7))
+        
+        # Add baseline and threshold lines
+        baseline = self.raw_df['total'].median()
+        ax.axhline(y=baseline, color='gray', linestyle='--', alpha=0.5, label='Baseline')
+        ax.axhline(y=baseline * 1.1, color='orange', linestyle=':', alpha=0.7, label='Small Spike Threshold')
+        ax.axhline(y=baseline * 1.8, color='red', linestyle=':', alpha=0.7, label='Big Spike Threshold')
+        
+        # Add vertical line to separate historical from forecast
+        if len(self.raw_df) > 0:
+            ax.axvline(x=self.raw_df.index[-1], color='black', linestyle='--', alpha=0.5, label='Prediction Start')
+        
+        ax.set_ylabel('CPU Usage Rate')
+        ax.set_title('CPU Usage Forecast with Spike Detection')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.grid(True, alpha=0.3)
+        
+        # Format x-axis
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=2))
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+    
+    def _plot_spike_details(self, ax, spikes):
+        """Plot spike timing and type details"""
+        if not spikes:
+            ax.text(0.5, 0.5, 'No spikes detected in forecast', 
+                   ha='center', va='center', transform=ax.transAxes)
+            ax.set_title('Spike Detection Summary')
+            return
+        
+        # Create timeline of spikes
+        spike_times = [spike['time_from_now'] for spike in spikes]
+        spike_types = [1 if spike['type'] == 'SMALL' else 2 for spike in spikes]
+        spike_colors = ['orange' if spike['type'] == 'SMALL' else 'red' for spike in spikes]
+        
+        ax.scatter(spike_times, spike_types, c=spike_colors, s=100, alpha=0.7)
+        
+        for i, spike in enumerate(spikes):
+            ax.annotate(f"S{spike['spike_id']}\n{spike['time_from_now']:.0f}s", 
+                       (spike['time_from_now'], spike_types[i]),
+                       xytext=(0, 20), textcoords='offset points',
+                       ha='center', va='bottom', fontsize=8)
+        
+        ax.set_xlabel('Time from Now (seconds)')
+        ax.set_ylabel('Spike Type')
+        ax.set_yticks([1, 2])
+        ax.set_yticklabels(['SMALL', 'BIG'])
+        ax.set_title('Spike Detection Timeline')
+        ax.grid(True, alpha=0.3)
+        
+        # Add summary text
+        small_count = sum(1 for s in spikes if s['type'] == 'SMALL')
+        big_count = sum(1 for s in spikes if s['type'] == 'BIG')
+        summary_text = f"Total: {len(spikes)} spikes | Small: {small_count} | Big: {big_count}"
+        ax.text(0.02, 0.98, summary_text, transform=ax.transAxes, 
+               bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.7),
+               verticalalignment='top')

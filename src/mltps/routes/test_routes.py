@@ -79,29 +79,129 @@ def query_prometheus():
         logger.error(f"Error executing Prometheus query: {e}")
         return jsonify({"error": str(e)}), 500
 
-@test_bp.route('/model-status', methods=['GET'])
-def model_status():
-    """Get current model status and data collection progress"""
-    prediction_service = current_app.prediction_service
-    
-    current_points = len(prediction_service.history) if not prediction_service.history.empty else 0
-    required_points = prediction_service.min_training_points
-    
-    # Calculate estimated time to sufficient data
-    if current_points > 0 and current_points < required_points:
-        # Assuming 15s intervals, calculate remaining time
-        remaining_points = required_points - current_points
-        estimated_minutes = (remaining_points * 15) / 60  # Convert to minutes
-    else:
-        estimated_minutes = 0
-    
-    return jsonify({
-        "is_initialized": prediction_service.is_initialized,
-        "current_data_points": current_points,
-        "required_data_points": required_points,
-        "data_collection_progress": min(100, (current_points / required_points) * 100),
-        "estimated_time_to_ready_minutes": max(0, estimated_minutes),
-        "last_model_update": prediction_service.last_update,
-        "transform_method": prediction_service.transform_method,
-        "best_params": prediction_service.best_params
-    })
+@test_bp.route('/forecast-visualization', methods=['GET', 'POST'])
+def forecast_visualization():
+    """Generate and return forecast visualization"""
+    try:
+        # Get parameters from request
+        if request.method == 'POST':
+            data = request.json or {}
+        else:
+            data = request.args.to_dict()
+        
+        steps = int(data.get('steps', 100))
+        include_confidence = data.get('include_confidence', 'true').lower() == 'true'
+        format_type = data.get('format', 'base64')  # 'base64' or 'binary'
+        
+        # Get prediction service
+        prediction_service = getattr(current_app, 'prediction_service', None)
+        if not prediction_service:
+            return jsonify({"error": "Prediction service not available"}), 500
+        
+        # Ensure model is initialized
+        if not prediction_service.is_initialized:
+            initialized = prediction_service.initialize_model()
+            if not initialized:
+                return jsonify({
+                    "error": "Model not initialized and initialization failed",
+                    "suggestion": "Ensure sufficient data is available and try again"
+                }), 500
+        
+        logger.info(f"Generating forecast visualization with {steps} steps")
+        
+        # Generate the visualization
+        result = prediction_service.generate_forecast_plot(
+            steps=steps,
+            include_confidence=include_confidence
+        )
+        
+        if not result:
+            return jsonify({"error": "Failed to generate visualization"}), 500
+        
+        # Return based on requested format
+        if format_type == 'binary':
+            # Return as binary PNG
+            import base64
+            from flask import Response
+            
+            plot_binary = base64.b64decode(result['plot_base64'])
+            return Response(
+                plot_binary,
+                mimetype='image/png',
+                headers={'Content-Disposition': 'inline; filename=forecast.png'}
+            )
+        else:
+            # Return as JSON with base64 encoded image
+            return jsonify({
+                "success": True,
+                "plot_base64": result['plot_base64'],
+                "forecast_data": result['forecast_data'],
+                "spikes": result['spikes'],
+                "model_info": result['model_info'],
+                "parameters": {
+                    "steps": steps,
+                    "include_confidence": include_confidence
+                }
+            })
+        
+    except Exception as e:
+        logger.error(f"Error generating forecast visualization: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@test_bp.route('/forecast-data-only', methods=['GET', 'POST'])
+def forecast_data_only():
+    """Get forecast data without visualization for analysis"""
+    try:
+        # Get parameters
+        if request.method == 'POST':
+            data = request.json or {}
+        else:
+            data = request.args.to_dict()
+        
+        steps = int(data.get('steps', 100))
+        
+        prediction_service = getattr(current_app, 'prediction_service', None)
+        if not prediction_service:
+            return jsonify({"error": "Prediction service not available"}), 500
+        
+        if not prediction_service.is_initialized:
+            initialized = prediction_service.initialize_model()
+            if not initialized:
+                return jsonify({"error": "Model not initialized"}), 500
+        
+        # Get forecast data
+        forecast_data = prediction_service.forecast_future(steps=steps)
+        enhanced_df = prediction_service.create_spike_features()
+        enhanced_forecast = prediction_service.predict_spike_pattern(forecast_data, enhanced_df)
+        
+        # Update forecast data
+        forecast_data['forecast'] = enhanced_forecast
+        
+        # Detect spikes
+        spikes = prediction_service.detect_spikes_in_forecast_improved(
+            forecast_data, grace_period_seconds=60
+        )
+        
+        return jsonify({
+            "success": True,
+            "forecast": {
+                "values": forecast_data['forecast'].tolist(),
+                "times": [t.isoformat() for t in forecast_data['forecast_index']],
+                "confidence_lower": forecast_data['ci_lower'].tolist(),
+                "confidence_upper": forecast_data['ci_upper'].tolist()
+            },
+            "spikes": spikes,
+            "model_info": {
+                "best_params": prediction_service.best_params,
+                "transform_method": prediction_service.transform_method,
+                "data_points": len(prediction_service.raw_df) if prediction_service.raw_df is not None else 0
+            },
+            "historical_data": {
+                "values": prediction_service.raw_df['total'].tail(50).tolist() if prediction_service.raw_df is not None else [],
+                "times": [t.isoformat() for t in prediction_service.raw_df.tail(50).index] if prediction_service.raw_df is not None else []
+            }
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting forecast data: {e}")
+        return jsonify({"error": str(e)}), 500

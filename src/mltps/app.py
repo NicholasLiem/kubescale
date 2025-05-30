@@ -7,7 +7,6 @@ from services.notification_service import NotificationService
 from utils.logging_config import setup_logging
 from routes.health_routes import health_bp
 from routes.prediction_routes import prediction_bp
-from routes.forecast_routes import forecast_bp
 from routes.test_routes import test_bp
 from background.prediction_loop import PredictionLoop
 
@@ -36,7 +35,6 @@ def create_app():
     # Register blueprints
     app.register_blueprint(health_bp)
     app.register_blueprint(prediction_bp)
-    app.register_blueprint(forecast_bp)
     app.register_blueprint(test_bp)
     
     # Start background prediction loop
