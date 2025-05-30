@@ -3,10 +3,10 @@
   "brain_controller_url": "http://brain-service.kube-scale.svc.cluster.local:8080",
   "namespace": "default",
   "update_interval_seconds": 60,
-  "prediction_window_size": 4,
+  "prediction_window_size": 40,
   "model_update_interval_minutes": 10,
   "confidence_threshold": 0.5,
-  "min_training_points": 60,
+  "min_training_points": 200,
   "arima_order": [3, 1, 1],
   "metrics_resample_freq": "15s",
   "metrics_fillna_method": "ffill"

@@ -5,3 +5,4 @@ requests
 statsmodels
 prometheus-client
 gunicorn
+matplotlib>=3.5.0

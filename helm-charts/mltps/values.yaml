@@ -8,14 +8,13 @@ image:
   pullPolicy: IfNotPresent
 
 resources:
-  # Minimum resource requests
   requests:
-    memory: "256Mi"
-    cpu: "100m"
+    memory: "1Gi"
+    cpu: "500m"
   # Maximum resource requests
   limits:
-    memory: "512Mi"
-    cpu: "500m"
+    memory: "2Gi"
+    cpu: "2"
 
 service:
   type: ClusterIP
@@ -25,10 +24,10 @@ service:
 
 livenessProbe:
   path: /health
-  initialDelaySeconds: 30
-  periodSeconds: 10
+  initialDelaySeconds: 300
+  periodSeconds: 30
 
 readinessProbe:
   path: /health
-  initialDelaySeconds: 30
-  periodSeconds: 10
+  initialDelaySeconds: 300
+  periodSeconds: 30

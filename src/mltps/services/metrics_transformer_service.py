@@ -132,33 +132,3 @@ class MetricsTransformerService:
             logger.info(f"Aggregated metrics from {len(df.columns)} pods into a single 'total' column")
                 
         return df_processed
-    
-    def detect_anomalies(self, df: pd.DataFrame, window: int = 10, threshold: float = 2.0) -> pd.DataFrame:
-        """
-        Detect anomalies in metrics data using z-score
-        
-        Args:
-            df: Input DataFrame with pod metrics
-            window: Rolling window size for z-score calculation
-            threshold: Z-score threshold for anomaly detection
-            
-        Returns:
-            DataFrame with boolean values indicating anomalies
-        """
-        if df.empty:
-            return pd.DataFrame()
-            
-        anomalies = pd.DataFrame(index=df.index)
-        
-        for col in df.columns:
-            # Calculate rolling mean and std
-            rolling_mean = df[col].rolling(window=window).mean()
-            rolling_std = df[col].rolling(window=window).std()
-            
-            # Calculate z-scores
-            z_scores = (df[col] - rolling_mean) / rolling_std
-            
-            # Mark anomalies where z-score exceeds threshold
-            anomalies[col] = (z_scores.abs() > threshold)
-            
-        return anomalies
