@@ -49,7 +49,7 @@ data:
         "path": "/api/v1",
         "image": "msvcbench/microservice:latest",
         "namespace": "default",
-        "memory-limits": "1Gi",
+        "memory-limits": "800Mi",
         "cpu-limits": "800m"
       },
       "s1": {
@@ -96,7 +96,7 @@ data:
         "path": "/api/v1",
         "image": "msvcbench/microservice:latest",
         "namespace": "default",
-        "memory-limits": "1Gi",
+        "memory-limits": "800Mi",
         "cpu-limits": "800m"
       },
       "s2": {
@@ -143,7 +143,7 @@ data:
         "path": "/api/v1",
         "image": "msvcbench/microservice:latest",
         "namespace": "default",
-        "memory-limits": "1Gi",
+        "memory-limits": "800Mi",
         "cpu-limits": "800m"
       }
     }
