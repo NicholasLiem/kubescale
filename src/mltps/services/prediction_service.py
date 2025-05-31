@@ -943,9 +943,6 @@ class PredictionService:
             # Main forecast plot
             self._plot_main_forecast(ax1, forecast_data, spikes, include_confidence)
             
-            # Spike detection details
-            self._plot_spike_details(ax2, spikes)
-            
             plt.tight_layout()
             
             # Convert to base64
@@ -981,7 +978,7 @@ class PredictionService:
     def _plot_main_forecast(self, ax, forecast_data, spikes, include_confidence):
         """Plot the main forecast with historical data"""
         # Plot historical data
-        historical_data = self.raw_df.tail(50)  # Last 50 points for context
+        historical_data = self.raw_df.tail(200)  # Last 50 points for context
         ax.plot(historical_data.index, historical_data['total'], 
                 'b-', label='Historical CPU Usage', linewidth=2, alpha=0.8)
         
@@ -992,80 +989,96 @@ class PredictionService:
         # Plot confidence intervals if requested
         if include_confidence:
             ax.fill_between(forecast_data['forecast_index'], 
-                          forecast_data['ci_lower'], 
-                          forecast_data['ci_upper'],
-                          alpha=0.3, color='red', label='95% Confidence Interval')
+                        forecast_data['ci_lower'], 
+                        forecast_data['ci_upper'],
+                        alpha=0.3, color='red', label='95% Confidence Interval')
         
-        # Mark spikes
+        # Mark spikes with enhanced annotations (similar to plot.py)
         for spike in spikes:
-            color = 'orange' if spike['type'] == 'SMALL' else 'red'
-            marker = 'o' if spike['type'] == 'SMALL' else '^'
-            size = 8 if spike['type'] == 'SMALL' else 12
+            # Use different colors for visual distinction
+            if spike.get('type') == 'BIG':
+                color = 'darkred'
+                marker = '^'
+                size = 150
+            else:
+                color = 'orange' 
+                marker = 'o'
+                size = 100
+                
+            ax.scatter(spike['time'], spike['value'], color=color, s=size, 
+                    zorder=5, marker=marker, edgecolors='black', linewidth=1)
             
-            ax.scatter(spike['time'], spike['value'], 
-                      color=color, marker=marker, s=size**2, 
-                      label=f"{spike['type']} Spike" if spike['spike_id'] == 1 else "",
-                      zorder=5, edgecolors='black', linewidth=1)
-            
-            # Add spike labels
-            ax.annotate(f"S{spike['spike_id']}", 
-                       (spike['time'], spike['value']),
-                       xytext=(0, 15), textcoords='offset points',
-                       ha='center', va='bottom', fontsize=8,
-                       bbox=dict(boxstyle='round,pad=0.3', facecolor=color, alpha=0.7))
+            # Enhanced spike annotation (matching plot.py style)
+            ax.annotate(f'Spike {spike["spike_id"]}\n{spike["value"]:.1f}\n(+{spike["time_from_now"]:.0f}s)', 
+                    xy=(spike['time'], spike['value']),
+                    xytext=(0, 20), textcoords='offset points',
+                    ha='center', fontsize=10, color=color, weight='bold',
+                    bbox=dict(boxstyle='round,pad=0.3', fc='white', alpha=0.9, edgecolor=color),
+                    arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
         
         # Add baseline and threshold lines
         baseline = self.raw_df['total'].median()
-        ax.axhline(y=baseline, color='gray', linestyle='--', alpha=0.5, label='Baseline')
-        ax.axhline(y=baseline * 1.1, color='orange', linestyle=':', alpha=0.7, label='Small Spike Threshold')
-        ax.axhline(y=baseline * 1.8, color='red', linestyle=':', alpha=0.7, label='Big Spike Threshold')
+        small_spike_threshold = baseline * 1.1
+        big_spike_threshold = baseline * 1.8
+        
+        # Add threshold range shading
+        x_range = [self.raw_df.index[0], forecast_data['forecast_index'][-1]]
+        ax.fill_between(x_range, baseline, small_spike_threshold, 
+                        color='lightgreen', alpha=0.1, label='Normal Range')
+        ax.fill_between(x_range, small_spike_threshold, big_spike_threshold, 
+                        color='yellow', alpha=0.1, label='Small Spike Range')
+        
+        # Get current y-axis limits for the upper bound
+        y_min, y_max = ax.get_ylim()
+        ax.fill_between(x_range, big_spike_threshold, y_max, 
+                        color='red', alpha=0.1, label='Big Spike Range')
+        
+        # Baseline and threshold lines
+        ax.axhline(y=baseline, color='green', linestyle='-', linewidth=2, 
+                    alpha=0.8, label=f'Baseline (Median: {baseline:.1f})')
+        ax.axhline(y=small_spike_threshold, color='orange', linestyle='--', linewidth=2, 
+                    alpha=0.8, label=f'Small Spike Threshold ({small_spike_threshold:.1f})')
+        ax.axhline(y=big_spike_threshold, color='red', linestyle='--', linewidth=2, 
+                    alpha=0.8, label=f'Big Spike Threshold ({big_spike_threshold:.1f})')
+        
+        # Add grace period shading
+        grace_period_seconds = 60
+        grace_end_time = self.raw_df.index[-1] + timedelta(seconds=grace_period_seconds)
+        grace_mask = forecast_data['forecast_index'] <= grace_end_time
+        
+        if np.any(grace_mask):
+            ax.fill_between(
+                forecast_data['forecast_index'][grace_mask],
+                forecast_data['ci_lower'][grace_mask] if include_confidence else [0]*np.sum(grace_mask),
+                forecast_data['ci_upper'][grace_mask] if include_confidence else forecast_data['forecast'][grace_mask],
+                color='gray', alpha=0.3, label=f'Grace Period ({grace_period_seconds}s)'
+            )
         
         # Add vertical line to separate historical from forecast
         if len(self.raw_df) > 0:
             ax.axvline(x=self.raw_df.index[-1], color='black', linestyle='--', alpha=0.5, label='Prediction Start')
         
         ax.set_ylabel('CPU Usage Rate')
-        ax.set_title('CPU Usage Forecast with Spike Detection')
-        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+        ax.set_title(f'CPU Usage Forecast with Spike Detection (Grace Period: {grace_period_seconds}s)')
+        ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9, ncol=1)
         ax.grid(True, alpha=0.3)
         
         # Format x-axis
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
         ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=2))
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
+        
+        # Add model info text box
+        if self.best_params:
+            order, seasonal_order = self.best_params
+            ax.text(0.02, 0.98, 
+                    f"Model: SARIMA{order}x{seasonal_order}\n"
+                    f"Transform: {self.transform_method}\n"
+                    f"Grace Period: {grace_period_seconds}s\n"
+                    f"Baseline: {baseline:.1f}\n"
+                    f"Small Threshold: {small_spike_threshold:.1f}\n"
+                    f"Big Threshold: {big_spike_threshold:.1f}",
+                    transform=ax.transAxes, fontsize=9,
+                    bbox=dict(facecolor='white', alpha=0.9, edgecolor='gray'),
+                    verticalalignment='top')
     
-    def _plot_spike_details(self, ax, spikes):
-        """Plot spike timing and type details"""
-        if not spikes:
-            ax.text(0.5, 0.5, 'No spikes detected in forecast', 
-                   ha='center', va='center', transform=ax.transAxes)
-            ax.set_title('Spike Detection Summary')
-            return
-        
-        # Create timeline of spikes
-        spike_times = [spike['time_from_now'] for spike in spikes]
-        spike_types = [1 if spike['type'] == 'SMALL' else 2 for spike in spikes]
-        spike_colors = ['orange' if spike['type'] == 'SMALL' else 'red' for spike in spikes]
-        
-        ax.scatter(spike_times, spike_types, c=spike_colors, s=100, alpha=0.7)
-        
-        for i, spike in enumerate(spikes):
-            ax.annotate(f"S{spike['spike_id']}\n{spike['time_from_now']:.0f}s", 
-                       (spike['time_from_now'], spike_types[i]),
-                       xytext=(0, 20), textcoords='offset points',
-                       ha='center', va='bottom', fontsize=8)
-        
-        ax.set_xlabel('Time from Now (seconds)')
-        ax.set_ylabel('Spike Type')
-        ax.set_yticks([1, 2])
-        ax.set_yticklabels(['SMALL', 'BIG'])
-        ax.set_title('Spike Detection Timeline')
-        ax.grid(True, alpha=0.3)
-        
-        # Add summary text
-        small_count = sum(1 for s in spikes if s['type'] == 'SMALL')
-        big_count = sum(1 for s in spikes if s['type'] == 'BIG')
-        summary_text = f"Total: {len(spikes)} spikes | Small: {small_count} | Big: {big_count}"
-        ax.text(0.02, 0.98, summary_text, transform=ax.transAxes, 
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='lightblue', alpha=0.7),
-               verticalalignment='top')
