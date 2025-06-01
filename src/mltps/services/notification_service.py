@@ -1,6 +1,5 @@
 import requests
 import logging
-from typing import Dict, Any
 
 logger = logging.getLogger("mltps")
 

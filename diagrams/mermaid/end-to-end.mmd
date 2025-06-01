@@ -1,0 +1,40 @@
+sequenceDiagram
+    participant M as Metrics Collector
+    participant ML as ML Predictor
+    participant R as Router/Load Balancer
+    participant W as Warm Pool
+    participant H as HPA
+    participant MP as Main Pool
+
+    Note over M,MP: Phase 1: Continuous Training
+    loop Every 60 seconds
+        M->>ML: Send metrics (CPU, memory, requests/sec)
+        ML->>ML: Update model if sufficient data
+    end
+
+    Note over M,MP: Phase 2: Prediction & Routing
+    M->>ML: Current metrics
+    ML->>ML: Predict spike in next 2-3 minutes
+    
+    alt Spike Predicted (confidence > 80%)
+        ML->>R: Trigger warm-pool routing
+        R->>R: Gradually shift traffic (10%->30%->50%)
+        R->>W: Route partial traffic to warm-pool
+        
+        Note over R: Spike Prevention Active
+        
+        Note over M,R: Threshold-Base Recovery
+        loop Every 15 seconds
+            M->>R: Check if load < normal_threshold * 1.2
+            alt Load normalized
+                R->>R: Begin traffic shift back
+            end
+        end
+        
+        R->>R: Gradually restore normal routing (50%->30%->10%->0%)
+        R->>MP: Resume normal traffic distribution
+        
+    else Large Spike Detected (actual metrics)
+        M->>H: Trigger HPA scaling
+        H->>MP: Scale up main pool
+    end
