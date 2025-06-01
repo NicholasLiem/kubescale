@@ -167,6 +167,7 @@ class PredictionLoop:
         
         return last_update_time
     
+    # TODO: Use the enhanced spike detection from forecast function
     def _make_prediction_and_check_anomalies(self):
         """Make prediction and check for anomalies"""
         try:

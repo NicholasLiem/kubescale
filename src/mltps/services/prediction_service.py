@@ -352,49 +352,6 @@ class PredictionService:
                 all_spikes.append(spike_info)
                 logger.info(f"DEBUG: {spike_type} Spike {spike_info['spike_id']} - "
                       f"Value: {spike_value:.2f}, Threshold ratio: {spike_value/baseline_value:.2f}x")
-    
-        if not all_spikes:
-            logger.info("DEBUG: No absolute spikes found, using relative peak detection")
-            try:
-                from scipy.signal import find_peaks
-                
-                peaks, properties = find_peaks(
-                    forecast_data['forecast'], 
-                    height=np.percentile(forecast_data['forecast'], 75),
-                    prominence=np.std(forecast_data['forecast']) * 0.3,
-                    distance=2
-                )
-                
-                # Apply grace period to relative peaks
-                valid_relative_peaks = peaks[peaks >= grace_period_points]
-                
-                for i, peak_idx in enumerate(valid_relative_peaks):
-                    spike_value = forecast_data['forecast'][peak_idx]
-                    spike_time = forecast_data['forecast_index'][peak_idx]
-                    time_from_now = (spike_time - self.raw_df.index[-1]).total_seconds()
-                    
-                    # Double-check grace period
-                    if time_from_now < grace_period_seconds:
-                        continue
-                    
-                    spike_info = {
-                        'index': peak_idx,
-                        'time': spike_time,
-                        'value': spike_value,
-                        'spike_id': len(all_spikes) + 1,
-                        'type': "SMALL",  # Default type
-                        'time_from_now': time_from_now
-                    }
-                    all_spikes.append(spike_info)
-                    logger.info(f"DEBUG: Relative Spike {len(all_spikes)} - Index: {peak_idx}, "
-                        f"Value: {spike_value:.2f}, Time from now: {time_from_now:.1f}s")
-                
-            except ImportError:
-                logger.info("DEBUG: scipy not available for relative peak detection")
-            except Exception as e:
-                logger.warning(f"DEBUG: Error in relative peak detection: {e}")
-    
-        logger.info(f"DEBUG: Final spike count: {len(all_spikes)}")
         return all_spikes
     
     def _group_consecutive_peaks(self, peak_indices, max_gap=2):
@@ -667,75 +624,6 @@ class PredictionService:
         # Pattern alternates if at least 60% of transitions are different
         return alternating_count / (len(pattern) - 1) >= 0.6
     
-    # 
-    # 
-    # 
-
-    def detect_spikes_in_forecast_improved(self, forecast_data, grace_period_seconds=60):
-        """Enhanced spike detection with better threshold separation"""
-        logger.info("DEBUG: Starting spike detection with grace period...")
-        
-        # Calculate grace period in data points (15-second intervals)
-        grace_period_points = int(grace_period_seconds / 15)
-        logger.info(f"DEBUG: Grace period: {grace_period_seconds} seconds ({grace_period_points} data points)")
-        
-        # Safety check for raw_df
-        if self.raw_df is None or self.raw_df.empty:
-            logger.warning("No raw data available for spike detection")
-            return []
-        
-        baseline_value = self.raw_df['total'].median()
-        
-        small_spike_threshold = baseline_value * 1.1
-        big_spike_threshold = baseline_value * 1.8
-        
-        logger.info(f"DEBUG: Small threshold: {small_spike_threshold:.2f}, Big threshold: {big_spike_threshold:.2f}")
-        
-        all_spikes = []
-        
-        # Safety check for forecast data
-        if 'forecast' not in forecast_data or forecast_data['forecast'] is None:
-            logger.warning("No forecast data available for spike detection")
-            return []
-        
-        # Find all peaks above small spike threshold, but exclude grace period
-        peak_indices = np.where(forecast_data['forecast'] > small_spike_threshold)[0]
-        valid_peak_indices = peak_indices[peak_indices >= grace_period_points]
-        
-        logger.info(f"DEBUG: Found {len(peak_indices)} total peaks, {len(valid_peak_indices)} peaks after grace period")
-        
-        if len(valid_peak_indices) > 0:
-            spike_groups = self._group_consecutive_peaks(valid_peak_indices, max_gap=3)
-            
-            for i, group in enumerate(spike_groups):
-                peak_idx = group[np.argmax(forecast_data['forecast'][group])]
-                spike_value = forecast_data['forecast'][peak_idx]
-                spike_time = forecast_data['forecast_index'][peak_idx]
-                
-                time_from_now = (spike_time - self.raw_df.index[-1]).total_seconds()
-                if time_from_now < grace_period_seconds:
-                    continue
-                
-                # Better spike classification based on your pattern
-                if spike_value > big_spike_threshold:
-                    spike_type = "BIG"
-                elif spike_value > small_spike_threshold:
-                    spike_type = "SMALL"
-                else:
-                    continue  # Skip if below small threshold
-                
-                spike_info = {
-                    'index': peak_idx,
-                    'time': spike_time,
-                    'value': spike_value,
-                    'spike_id': len(all_spikes) + 1,
-                    'type': spike_type,
-                    'time_from_now': time_from_now
-                }
-                all_spikes.append(spike_info)
-                logger.info(f"DEBUG: {spike_type} Spike {spike_info['spike_id']} - "
-                      f"Value: {spike_value:.2f}, Threshold ratio: {spike_value/baseline_value:.2f}x")
-    
     #
     # MODEL INITIALIZATION AND UPDATE
     #
@@ -813,7 +701,8 @@ class PredictionService:
                     logger.warning("Optimization failed, using simple default")
                     self.best_params = ((1, 1, 1), (0, 1, 0, 12))
                 
-                forecast_data = self.forecast_future(steps=100)
+                # Forecast 10 minutes ahead
+                forecast_data = self.forecast_future(steps=40)
 
                 enhanced_df = self.create_spike_features()
 
@@ -938,7 +827,7 @@ class PredictionService:
                 spikes = []
             
             # Create the plot
-            fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, height_ratios=[3, 1])
+            fig, ax1 = plt.subplots(1, 1, figsize=figsize)
             
             # Main forecast plot
             self._plot_main_forecast(ax1, forecast_data, spikes, include_confidence)
@@ -993,9 +882,7 @@ class PredictionService:
                         forecast_data['ci_upper'],
                         alpha=0.3, color='red', label='95% Confidence Interval')
         
-        # Mark spikes with enhanced annotations (similar to plot.py)
         for spike in spikes:
-            # Use different colors for visual distinction
             if spike.get('type') == 'BIG':
                 color = 'darkred'
                 marker = '^'
@@ -1006,7 +893,7 @@ class PredictionService:
                 size = 100
                 
             ax.scatter(spike['time'], spike['value'], color=color, s=size, 
-                    zorder=5, marker=marker, edgecolors='black', linewidth=1)
+                    zorder=5, marker=marker, edgecolors='black', linewidth=2)
             
             # Enhanced spike annotation (matching plot.py style)
             ax.annotate(f'Spike {spike["spike_id"]}\n{spike["value"]:.1f}\n(+{spike["time_from_now"]:.0f}s)', 
@@ -1062,9 +949,14 @@ class PredictionService:
         ax.set_title(f'CPU Usage Forecast with Spike Detection (Grace Period: {grace_period_seconds}s)')
         ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=9, ncol=1)
         ax.grid(True, alpha=0.3)
+
+        from datetime import timezone
+    
+        # Convert times to WIB (UTC+7)
+        wib_tz = timezone(timedelta(hours=7))
         
         # Format x-axis
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S'))
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%H:%M:%S', tz=wib_tz))
         ax.xaxis.set_major_locator(mdates.MinuteLocator(interval=2))
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45)
         
