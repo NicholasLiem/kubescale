@@ -11,7 +11,7 @@ class PredictionLoop:
         self.notification_service = notification_service
         self.MODEL_UPDATE_INTERVAL = 10 * 60  # 10 minutes
         self.DATA_CHECK_INTERVAL = 60  # 1 minute  
-        self.PREDICTION_INTERVAL = 30  # 30 seconds
+        self.PREDICTION_INTERVAL = 60  # 1 minute
         self._stop_event = threading.Event()
     
     def start_background_thread(self):
@@ -57,6 +57,10 @@ class PredictionLoop:
                     time.sleep(self.PREDICTION_INTERVAL)
                     continue
                 
+                if not self._fit_model_with_updated_data():
+                    logger.warning(" Failing to fit model with newest data point")
+                    continue
+
                 # Make predictions and check for anomalies
                 self._make_prediction_and_check_anomalies()
                 
@@ -166,6 +170,10 @@ class PredictionLoop:
                 return last_update_time
         
         return last_update_time
+    
+    def _fit_model_with_updated_data(self):
+        """Fit current model with new data"""
+        return self.prediction_service.fit_with_current_data()
     
     # TODO: Use the enhanced spike detection from forecast function
     def _make_prediction_and_check_anomalies(self):

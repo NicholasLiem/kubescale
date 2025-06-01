@@ -5,10 +5,10 @@ from utils.logging_config import setup_logging
 logger = setup_logging()
 test_bp = Blueprint('test', __name__)
 
-# TODO: Update this function to fit with current data and predict the next 10 minutes for spike
-@test_bp.route('/force-prediction', methods=['POST'])
+# Inter service comm testing
+@test_bp.route('/force-scaling', methods=['POST'])
 def force_prediction():
-    """Force a prediction and notify brain controller (for testing)"""
+    """Force a scaling and notify brain controller (for testing)"""
     data = request.json
     scale_to = data.get("replica_count", 3)
     deployment = data.get("deployment_name", "s0-warm-pool")

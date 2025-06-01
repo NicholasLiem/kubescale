@@ -198,7 +198,7 @@ class PredictionService:
     # MODEL FITTING
     # 
 
-    def fit_sarima_model(self, train_data, order, seasonal_order):
+    def fit_sarima_model(self, train_data, order, seasonal_order, max_iter=50):
         """Fit SARIMA model with given parameters"""
         model = SARIMAX(
             train_data['total'],
@@ -207,8 +207,76 @@ class PredictionService:
             enforce_stationarity=False,
             enforce_invertibility=False
         )
-        return model.fit(disp=False, maxiter=25)
+        return model.fit(disp=False, maxiter=max_iter)
     
+    def fit_with_current_data(self) -> bool:
+        """
+        Fetch latest data and refit the current model for immediate prediction use
+        This is a lighter version of update_model that doesn't change parameters
+        """
+        if not self.is_initialized:
+            logger.warning("Model not initialized, cannot fit with current data")
+            return False
+        
+        if not self.best_params:
+            logger.warning("No optimal parameters available, cannot fit model")
+            return False
+
+        try:
+            logger.info("🔄 Fetching latest CPU data for model fitting...")
+            
+            # Fetch fresh data from Prometheus
+            raw_data = self.metrics_service.get_prometheus_data(
+                query='sum(rate(container_cpu_usage_seconds_total{namespace="default", pod=~"s[0-2].*|gw-nginx.*"}[1m])) by (pod)',
+                step='15s'
+            )
+            
+            if not raw_data or 'data' not in raw_data or 'result' not in raw_data['data']:
+                logger.warning("No fresh CPU data available for fitting")
+                return False
+            
+            # Convert and prepare data
+            raw_df = self.transformer.prometheus_to_dataframe(raw_data)
+            
+            if raw_df.empty:
+                logger.warning("Transformed CPU data is empty")
+                return False
+            
+            # Prepare for ARIMA modeling
+            prepared_df = self.transformer.prepare_for_arima(
+                df=raw_df,
+                metric_type="cpu",
+                resample_freq="15s",
+                fillna_method='ffill',
+                aggregate=True
+            )
+            
+            # Update raw data
+            self.raw_df = prepared_df
+            self.history = prepared_df
+            
+            logger.info(f"📊 Fitting model with {len(prepared_df)} fresh data points")
+            
+            # Check if we still have enough data
+            if len(prepared_df) < self.min_training_points:
+                logger.warning(f"Insufficient data points for fitting: {len(prepared_df)}/{self.min_training_points}")
+                return False
+            
+            # Prepare transformed data using existing transformation method
+            if not self.prepare_transformed_data(method=self.transform_method):
+                logger.error("Failed to prepare transformed data for fitting")
+                return False
+            
+            # Refit model with existing best parameters and new data using existing function
+            order, seasonal_order = self.best_params
+            self.best_model = self.fit_sarima_model(self.transformed_df, order, seasonal_order, max_iter=100)
+            
+            logger.info(f"✅ Model successfully fitted with fresh data (AIC: {self.best_model.aic:.2f})")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Error fitting model with current data: {e}")
+            return False
     # 
     # FORECAST AND SPIKE DETECTION IN FORECAST
     # 
@@ -259,7 +327,7 @@ class PredictionService:
         forecast_index = pd.date_range(
             start=self.raw_df.index[-1] + timedelta(seconds=15),
             periods=steps,
-            freq='15S'
+            freq='15s'
         )
         
         forecast = full_results.forecast(steps=steps)
