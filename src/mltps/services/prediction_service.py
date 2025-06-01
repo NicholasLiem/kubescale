@@ -7,7 +7,6 @@ import numpy as np
 import time
 from scipy import stats
 import pandas as pd
-from typing import Optional, Tuple
 from tqdm import tqdm
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 import matplotlib
@@ -48,7 +47,6 @@ class PredictionService:
         self.is_initialized = False
         self.history = pd.DataFrame()
         self.last_update = 0
-        self.last_prediction = None
         
         # SARIMAX model state
         self.raw_df = None
@@ -62,7 +60,7 @@ class PredictionService:
         logger.info("PredictionService initialized with CPU usage metrics. Waiting for sufficient data collection...")
     
     #
-    # DATA ANALYTICS
+    # DATA ANALYTICS AND TRANSFORMATION
     # 
 
     def transform_data(self, series, method='log'):
@@ -195,13 +193,6 @@ class PredictionService:
         
         logger.info(f"Data transformed using method: {method}")
         return True
-    
-    def split_data(self, train_ratio=0.8):
-        """Split data into training and testing sets"""
-        train_size = int(len(self.transformed_df) * train_ratio)
-        train_data = self.transformed_df.iloc[:train_size]
-        test_data = self.transformed_df.iloc[train_size:]
-        return train_data, test_data
 
     # 
     # MODEL FITTING
@@ -746,47 +737,6 @@ class PredictionService:
         except Exception as e:
             logger.error(f"Error processing CPU metrics data for model update: {e}")
             return False
-    
-    def predict_traffic(self) -> Tuple[Optional[np.ndarray], float]:
-        """Enhanced predict method using the optimized SARIMA model"""
-        if not self.is_initialized:
-            initialized = self.initialize_model()
-            if not initialized:
-                logger.warning("Cannot predict CPU usage: model not initialized and initialization failed")
-                return None, 0.0
-                
-        try:
-            if self.best_model is None:
-                logger.error("Best model is not available")
-                return None, 0.0
-            
-            # Generate forecast using the optimized model
-            forecast = self.best_model.forecast(steps=self.window_size)
-            
-            # Get prediction intervals for confidence
-            pred = self.best_model.get_forecast(steps=self.window_size)
-            confidence_intervals = pred.conf_int(alpha=0.05)  # 95% confidence
-            
-            # Transform back to original scale
-            forecast_orig = self.inverse_transform(forecast)
-            
-            # Calculate confidence based on interval width
-            ci_width = np.mean(confidence_intervals.iloc[:, 1] - confidence_intervals.iloc[:, 0])
-            max_possible_width = np.std(self.transformed_df['total']) * 4  # Rough estimate
-            confidence = max(0.0, min(1.0, 1 - (ci_width / max_possible_width)))
-            
-            self.last_prediction = {
-                "timestamp": time.time(),
-                "forecast": forecast_orig,
-                "confidence": confidence
-            }
-            
-            return np.array(forecast_orig), confidence
-            
-        except Exception as e:
-            logger.error(f"Error predicting CPU usage: {e}")
-            return None, 0.0
-        
 
     # PLOTTING USES
 

@@ -5,6 +5,7 @@ from utils.logging_config import setup_logging
 logger = setup_logging()
 test_bp = Blueprint('test', __name__)
 
+# TODO: Update this function to fit with current data and predict the next 10 minutes for spike
 @test_bp.route('/force-prediction', methods=['POST'])
 def force_prediction():
     """Force a prediction and notify brain controller (for testing)"""
