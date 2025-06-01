@@ -1,6 +1,6 @@
 {
   "prometheus_url": "http://prometheus-kube-prometheus-prometheus.monitoring.svc.cluster.local:9090",
-  "brain_controller_url": "http://brain-service.kube-scale.svc.cluster.local:8080",
+  "brain_controller_url": "http://brain.kube-scale.svc.cluster.local:8080",
   "namespace": "default",
   "update_interval_seconds": 60,
   "prediction_window_size": 40,
