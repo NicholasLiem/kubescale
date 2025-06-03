@@ -15,32 +15,25 @@ class NotificationService:
         self.brain_controller_url = brain_controller_url
         self.namespace = namespace
         
-    def notify_brain_controller(self, spike_detected: bool, predicted_value=0, time_to_spike=0, deployment_name=None):
+    def notify_brain_controller(self, formatted_spikes):
         """Notify brain controller about prediction"""
-        if not spike_detected:
-            return
-            
+        if not formatted_spikes:
+            logger.warning("No spikes to notify brain controller about")
+            return False, None
+        
         try:
-            target_deployment = deployment_name or "s0-warm-pool"
-            target_namespace = self.namespace
-            
-            # TODO: To change this
-            current_replicas = 1  # Default
-            replica_count = max(1, int(predicted_value / 100))  # 1 replica per 100 requests/sec
-            
-            scale_request = {
-                "replica_count": replica_count,
-                "deployment_name": target_deployment,
-                "namespace": target_namespace
+            forecast_request = {
+                'success': True,
+                'spikes': formatted_spikes,
             }
-            
+
             response = requests.post(
-                f"{self.brain_controller_url}/ml-callback/scale",
-                json=scale_request
+                f"{self.brain_controller_url}/ml-callback/spike-forecast",
+                json=forecast_request
             )
             
             if response.status_code == 200:
-                logger.info(f"Successfully notified brain controller to scale to {replica_count} replicas")
+                logger.info(f"Successfully notified brain controller about spike forecast")
                 return True, response.json()
             else:
                 logger.error(f"Failed to notify brain controller: {response.status_code} {response.text}")

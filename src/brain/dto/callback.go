@@ -12,3 +12,17 @@ type SpikeStateResponse struct {
 	LastSpikeEndTime string `json:"last_spike_end_time,omitempty"`
 	SpikeCount       int    `json:"spike_count"`
 }
+
+type SpikeForecast struct {
+	Success bool        `json:"success"`
+	Spikes  []SpikeInfo `json:"spikes"`
+}
+
+type SpikeInfo struct {
+	Index       int     `json:"index"`
+	Time        string  `json:"time"`
+	Value       float64 `json:"value"`
+	SpikeID     int     `json:"spike_id"`
+	Type        string  `json:"type"`
+	TimeFromNow float64 `json:"time_from_now"`
+}

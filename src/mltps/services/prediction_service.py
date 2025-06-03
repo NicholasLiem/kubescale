@@ -992,3 +992,37 @@ class PredictionService:
                     bbox=dict(facecolor='white', alpha=0.9, edgecolor='gray'),
                     verticalalignment='top')
     
+    # FOR UPDATING PURPOSES
+
+    def predict_spikes(self, steps=100):
+        if not self.initialize_model:
+            logger.warning("Model not initialized, cannot predict spike yet")
+        
+        try:
+            forecast_data = self.forecast_future(steps=steps)
+
+            if not forecast_data or 'forecast' not in forecast_data:
+                logger.error("Failed to generate forecast data")
+                return None
+            
+            enhanced_df = self.create_spike_features()
+
+            enhanced_forecast = self.predict_spike_pattern(forecast_data, enhanced_df)
+            
+            if enhanced_forecast is None or len(enhanced_forecast) == 0:
+                logger.warning("Enhanced forecast is empty, using original forecast")
+                enhanced_forecast = forecast_data['forecast']
+
+            forecast_data['forecast'] = enhanced_forecast
+
+            spikes = self.detect_spikes_in_forecast_improved(forecast_data, grace_period_seconds=60)
+
+            if spikes is None:
+                spikes = []
+            
+            return spikes
+        except Exception as e:
+            logger.error(f"Error predicting forecast data {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None

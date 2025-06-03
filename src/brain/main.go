@@ -37,7 +37,7 @@ func main() {
 	}
 
 	// Create a new state manager
-	stateManager := state_manager.NewStateManager()
+	stateManager := state_manager.NewStateManager(resourceManager)
 
 	// Initialize Gin router
 	router := gin.Default()

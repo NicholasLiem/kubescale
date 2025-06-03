@@ -1,3 +1,4 @@
+import numpy as np
 from flask import Blueprint, jsonify, request, current_app
 from services.metrics_transformer_service import MetricsTransformerService
 from utils.logging_config import setup_logging
@@ -78,6 +79,50 @@ def query_prometheus():
         
     except Exception as e:
         logger.error(f"Error executing Prometheus query: {e}")
+        return jsonify({"error": str(e)}), 500
+    
+@test_bp.route('/forecast-spike', methods=['GET'])
+def forecast_spike():
+    try:
+        prediction_service = getattr(current_app, 'prediction_service', None)
+        if not prediction_service:
+            return jsonify({"error": "Prediction service not available"}), 500
+        
+        if not prediction_service.is_initialized:
+            initialized = prediction_service.initialize_model()
+            if not initialized:
+                return jsonify({
+                    "error": "Model not initialized and initialization failed",
+                    "suggestion": "Ensure sufficient data is available and try again"
+                }), 500
+            
+        result = prediction_service.predict_spikes()
+
+        if not result:
+            return jsonify({
+                "success": True,
+                "spikes": [],
+            }), 200
+        
+        formatted_spikes = []
+        for spike in result:
+            formatted_spike = {
+                'index': int(spike['index']) if isinstance(spike['index'], (np.integer, np.int64)) else spike['index'],
+                'time': spike['time'].isoformat() if hasattr(spike['time'], 'isoformat') else str(spike['time']),
+                'value': float(spike['value']) if isinstance(spike['value'], (np.floating, np.float64)) else spike['value'],
+                'spike_id': int(spike['spike_id']) if isinstance(spike['spike_id'], (np.integer, np.int64)) else spike['spike_id'],
+                'type': str(spike['type']),
+                'time_from_now': float(spike['time_from_now']) if isinstance(spike['time_from_now'], (np.floating, np.float64)) else spike['time_from_now']
+            }
+            formatted_spikes.append(formatted_spike)
+        
+        return jsonify({
+            "success": True,
+            "spikes": formatted_spikes,
+        })
+
+    except Exception as e:
+        logger.error(f"Error generating forecast: {e}")
         return jsonify({"error": str(e)}), 500
 
 @test_bp.route('/forecast-visualization', methods=['GET', 'POST'])

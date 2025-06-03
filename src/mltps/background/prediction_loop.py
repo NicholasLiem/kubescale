@@ -1,5 +1,6 @@
 import time
 import threading
+import numpy as np
 from utils.logging_config import setup_logging
 
 logger = setup_logging()
@@ -62,7 +63,7 @@ class PredictionLoop:
                     continue
 
                 # Make predictions and check for anomalies
-                self._make_prediction_and_check_anomalies()
+                self._notify_spike_forecast()
                 
             except Exception as e:
                 logger.error(f"❌ Error in main prediction loop iteration #{prediction_count}: {e}")
@@ -130,32 +131,6 @@ class PredictionLoop:
         logger.error("❌ Failed to initialize model after all attempts")
         return False
     
-    def _handle_spike_notification(self, anomaly, is_spike_ending=False):
-        """Handle spike or spike ending notifications"""
-        try:
-            if is_spike_ending:
-                logger.info(f"🔽 SPIKE ENDING: Traffic normalizing "
-                           f"(current: {anomaly['current_value']:.2f}, confidence: {anomaly['confidence']:.2f})")
-                success, response = self.notification_service.notify_brain_controller(
-                    False, anomaly["current_value"], 0, message="traffic_normalizing"
-                )
-                action = "normalization"
-            else:
-                logger.info(f"🔥 SPIKE ALERT: Predicted {anomaly['predicted_value']:.2f} "
-                           f"(current: {anomaly['current_value']:.2f}, confidence: {anomaly['confidence']:.2f})")
-                success, response = self.notification_service.notify_brain_controller(
-                    True, anomaly["predicted_value"], anomaly["time_to_spike"]
-                )
-                action = "spike"
-            
-            if success:
-                logger.info(f"📢 Brain controller notified of {action}")
-            else:
-                logger.warning(f"⚠️ Failed to notify brain controller: {response}")
-                
-        except Exception as e:
-            logger.error(f"❌ Error notifying brain controller: {e}")
-    
     def _update_model_if_needed(self, last_update_time):
         """Update model if enough time has passed"""
         current_time = time.time()
@@ -175,19 +150,31 @@ class PredictionLoop:
         """Fit current model with new data"""
         return self.prediction_service.fit_with_current_data()
     
-    # TODO: Use the enhanced spike detection from forecast function
-    def _make_prediction_and_check_anomalies(self):
-        """Make prediction and check for anomalies"""
+    def _notify_spike_forecast(self):
         try:
-            forecast, confidence = self.prediction_service.predict_traffic()
-            anomaly = self.prediction_service.detect_traffic_anomaly()
+            result = self.prediction_service.predict_spikes()
+            if result is None:
+                logger.warning("⚠️ No spike forecast available")
+                return
             
-            if anomaly["spike_detected"]:
-                self._handle_spike_notification(anomaly)
-            elif anomaly["spike_ending"]:
-                self._handle_spike_notification(anomaly, is_spike_ending=True)
-            else:
-                logger.info(f"✅ Normal traffic predicted (confidence: {confidence:.3f})")
+            formatted_spikes = []
+            for spike in result:
+                formatted_spike = {
+                    'index': int(spike['index']) if isinstance(spike['index'], (np.integer, np.int64)) else spike['index'],
+                    'time': spike['time'].isoformat() if hasattr(spike['time'], 'isoformat') else str(spike['time']),
+                    'value': float(spike['value']) if isinstance(spike['value'], (np.floating, np.float64)) else spike['value'],
+                    'spike_id': int(spike['spike_id']) if isinstance(spike['spike_id'], (np.integer, np.int64)) else spike['spike_id'],
+                    'type': str(spike['type']),
+                    'time_from_now': float(spike['time_from_now']) if isinstance(spike['time_from_now'], (np.floating, np.float64)) else spike['time_from_now']
+                }
+                formatted_spikes.append(formatted_spike)
+            
+            if formatted_spikes:
+                logger.info(f"📈 Spike forecast generated: {len(formatted_spikes)} spikes predicted")
+                for spike in formatted_spikes:
+                    logger.info(f"Spike at {spike['time']} - Value: {spike['value']}, Type: {spike['type']}")
+
+            self.notification_service.notify_brain_controller(formatted_spikes)
                 
         except Exception as e:
-            logger.error(f"❌ Error in prediction/anomaly detection: {e}")
+            logger.error(f"❌ Error in prediction detection: {e}")

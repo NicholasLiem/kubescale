@@ -2,9 +2,8 @@ package controller
 
 import (
 	"encoding/json"
-	"fmt"
-	"net/http"
 	"time"
+	"net/http"
 
 	callback "github.com/NicholasLiem/brain-controller/dto"
 	"github.com/NicholasLiem/brain-controller/resource_manager"
@@ -22,48 +21,6 @@ func NewMLController(rm *resource_manager.ResourceManager, sm *state_manager.Sta
 		resourceManager: rm,
 		stateManager:    sm,
 	}
-}
-
-func (c *MLController) HandleScale(ctx *gin.Context) {
-	body, err := ctx.GetRawData()
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
-		return
-	}
-
-	var scaleRequest callback.ScaleRequest
-	if err := json.Unmarshal(body, &scaleRequest); err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format"})
-		return
-	}
-
-	// Check if this is a scale down request
-	currentScale, err := c.resourceManager.GetCurrentScale(scaleRequest.DeploymentName, scaleRequest.Namespace)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get current scale: %v", err)})
-		return
-	}
-
-	if int32(scaleRequest.ReplicaCount) < currentScale && c.stateManager.IsInSpike() {
-		ctx.JSON(http.StatusConflict, gin.H{
-			"message":       "Cannot scale down during spike event",
-			"current_state": "in_spike",
-		})
-		return
-	}
-
-	// If it's a scale up request, mark that we're in a spike
-	if int32(scaleRequest.ReplicaCount) > currentScale {
-		c.stateManager.StartSpike()
-	}
-
-	err = c.resourceManager.ScalePods(scaleRequest)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to scale: %v", err)})
-		return
-	}
-
-	ctx.JSON(http.StatusOK, gin.H{"message": "Scaling operation triggered successfully"})
 }
 
 func (c *MLController) HandleUpdateTrafficSplit(ctx *gin.Context) {
@@ -95,61 +52,53 @@ func (c *MLController) HandleUpdateTrafficSplit(ctx *gin.Context) {
 	})
 }
 
-func (c *MLController) HandleSpikeEnd(ctx *gin.Context) {
-	c.stateManager.EndSpike()
-
-	// Get all deployments in warm-pool namespace
-	deployments, err := c.resourceManager.GetDeployments("warm-pool")
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to get warm pool deployments: %v", err)})
-		return
-	}
-
-	// Scale down each deployment to 1 replica
-	for _, deployment := range deployments.Items {
-		scaleRequest := callback.ScaleRequest{
-			DeploymentName: deployment.Name,
-			Namespace:      "warm-pool",
-			ReplicaCount:   1,
-		}
-
-		err := c.resourceManager.ScalePods(scaleRequest)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to scale down deployment %s: %v", deployment.Name, err)})
-			return
-		}
-	}
-
-	err = c.resourceManager.UpdateTrafficSplit(80, 20)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to update traffic split: %v", err)})
-		return
-	}
+func (c *MLController) HandleGetSpikeState(ctx *gin.Context) {
+	spikeState := c.stateManager.GetSpikeMetrics()
 
 	ctx.JSON(http.StatusOK, gin.H{
-		"message":        "Spike event ended successfully",
-		"current_state":  "normal",
-		"spike_ended_at": time.Now(),
+		"spike_state": spikeState,
 	})
 }
 
-func (c *MLController) HandleGetSpikeState(ctx *gin.Context) {
-	spikeState := c.stateManager.GetSpikeState()
+func (c *MLController) HandleSpikeForecast(ctx *gin.Context) {
+	body, err := ctx.GetRawData()
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		return
+	}
 
-	ctx.JSON(http.StatusOK, gin.H{
-		"is_in_spike":         spikeState.IsInSpike,
-		"spike_start_time":    spikeState.SpikeStartTime,
-		"last_spike_end_time": spikeState.LastSpikeEndTime,
-		"spike_count":         spikeState.SpikeRequestCount,
-	})
+	var spikeForecast callback.SpikeForecast
+	if err := json.Unmarshal(body, &spikeForecast); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid JSON format"})
+		return
+	}
+
+	// Handle gradual adjustment of traffic weight
+	if len(spikeForecast.Spikes) > 0 {
+		for _, spike := range spikeForecast.Spikes {
+			if spike.TimeFromNow < 0 {
+				ctx.JSON(http.StatusBadRequest, gin.H{"error": "Spike time cannot be in the past"})
+				return
+			}
+
+			if spike.Type == "BIG" {
+				if !c.stateManager.IsInSpike() {
+					timeToSpike := time.Duration(spike.TimeFromNow) * time.Second
+					c.stateManager.StartSpike(timeToSpike)
+				}
+				return
+			}
+		}
+	}
+
+	ctx.JSON(http.StatusOK, spikeForecast)
 }
 
 func (c *MLController) RegisterRoutes(router *gin.Engine) {
 	mlCallbackGroup := router.Group("/ml-callback")
 	{
-		mlCallbackGroup.POST("/scale", c.HandleScale)
 		mlCallbackGroup.POST("/update-traffic-split", c.HandleUpdateTrafficSplit)
-		mlCallbackGroup.POST("/spike-end", c.HandleSpikeEnd)
+		mlCallbackGroup.POST("/spike-forecast", c.HandleSpikeForecast)
 		mlCallbackGroup.GET("/spike-state", c.HandleGetSpikeState)
 	}
 }
