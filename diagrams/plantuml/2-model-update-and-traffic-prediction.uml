@@ -1,0 +1,42 @@
+@startuml
+title 2. Model Update and Traffic Prediction
+
+participant "Machine Learning Traffic Prediction System" as MLTPS
+participant "Brain Controller" as Brain
+participant "Prometheus" as Prometheus
+
+note over MLTPS, Prometheus
+  **Configuration:**
+  X = 60 seconds (PREDICTION_INTERVAL)
+  Model Update = 10 minutes (MODEL_UPDATE_INTERVAL)
+end note
+
+loop Every X Prediction Interval
+    alt Model Update Interval Reached (10 min)
+        MLTPS -> MLTPS: update_model()
+        note right of MLTPS: Full model retraining\nwith latest parameters
+    end
+    
+    alt Model is initialized
+        MLTPS -> Prometheus: Collect latest metrics
+        MLTPS -> MLTPS: fit_with_current_data()
+        note right of MLTPS: Light model update\nwith fresh data
+        
+        MLTPS -> MLTPS: Generate spike predictions
+        note right of MLTPS: Predict future traffic spikes\nusing SARIMA model
+        
+        alt Spikes detected in forecast
+            MLTPS -> MLTPS: Format spike data
+            note right of MLTPS: Convert numpy types\nto JSON-serializable format
+            MLTPS -> Brain: notify_brain_controller(spikes)
+            note right of Brain: Send spike predictions:\n- Time, Value, Type\n- Spike ID, Time from now
+        else No spikes predicted
+            note right of MLTPS: Continue monitoring\nNo action needed
+        end
+        
+    else Model is not initialized
+        note right of MLTPS: Skip prediction cycle\nWait for model initialization
+        MLTPS -> MLTPS: Sleep for PREDICTION_INTERVAL
+    end
+end
+@enduml

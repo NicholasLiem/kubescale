@@ -1,0 +1,55 @@
+@startuml
+title 4. Spike Recovery Phase
+
+participant "State Manager" as StateManager
+participant "Resource Manager" as ResourceManager
+participant "Prometheus Metrics" as Prometheus
+participant "Istio VirtualService" as VirtualService
+participant "Warm Pool Buffer" as WarmPoolBuffer
+participant "Default Namespace" as DefaultNamespace
+
+note over StateManager, DefaultNamespace
+  **Recovery Triggers:**
+  Auto Recovery: 90 seconds after predicted spike
+  Manual Recovery: CPU < threshold for 30+ seconds
+  Recovery Steps: 4 phases, 15 seconds each
+end note
+
+alt Auto Recovery Path
+    StateManager -> StateManager: autoRecoveryWatcher()
+    note right of StateManager: Wait until PredictedSpikeEndTime\n(spike time + 90 seconds)
+    
+    StateManager -> StateManager: Check if still IsInSpike()
+    StateManager -> StateManager: EndSpike()
+    note right of StateManager: Set spike state = OFF\nUpdate LastSpikeEndTime
+    
+    StateManager -> ResourceManager: RecoverTraffic()
+    
+else Manual Recovery Path
+    StateManager -> Prometheus: Monitor current CPU usage
+    
+    alt CPU < thresholdCPU && spike duration > 30s
+        StateManager -> StateManager: CheckMetricsAndRecover()
+        note right of StateManager: Validate recovery conditions:\n- Minimum spike duration met\n- Metrics indicate stability
+        
+        StateManager -> StateManager: EndSpike()
+        StateManager -> ResourceManager: RecoverTraffic()
+    else CPU still high || spike duration < 30s
+        note right of StateManager: Continue monitoring\nDelay recovery decision
+    end
+end
+
+loop Recovery Traffic Adjustment (4 steps × 15s)
+    ResourceManager -> VirtualService: UpdateTrafficSplit(step)
+    note right of VirtualService: Gradual return to normal:\nStep 1: 73%/27% → 82%/18%\nStep 2: 82%/18% → 91%/9%\nStep 3: 91%/9% → 96%/4%\nStep 4: 96%/4% → 100%/0%
+    
+    ResourceManager -> ResourceManager: Wait 15 seconds
+end
+
+note over WarmPoolBuffer, DefaultNamespace
+  **Post-Recovery State:**
+  Traffic: 100% Default, 0% Warm Pool
+  Warm Pool: Returns to idle buffer state
+  HPA: Continues monitoring for scale-down
+end note
+@enduml

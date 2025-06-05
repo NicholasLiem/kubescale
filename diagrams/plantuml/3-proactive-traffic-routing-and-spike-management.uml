@@ -1,0 +1,48 @@
+@startuml
+title 3. Proactive Traffic Routing and Spike Management
+
+participant "ML Predictor" as MLPredictor
+participant "Brain Controller" as BrainController
+participant "State Manager" as StateManager
+participant "Resource Manager" as ResourceManager
+participant "Warm Pool Buffer" as WarmPoolBuffer
+participant "Default Namespace HPA" as DefaultHPA
+participant "Istio VirtualService" as VirtualService
+
+note over MLPredictor, VirtualService
+  **Configuration:**
+  Warm Pool: Fixed buffer capacity (1.8 cores)
+  Default Pool: Scalable via HPA (4.8+ cores)
+  Traffic Routing: Gradual shift during spikes
+end note
+
+MLPredictor -> BrainController: POST /ml-callback/spike-forecast
+note right of BrainController: Receive spike predictions
+
+alt Spike.Type == "BIG" && !IsInSpike()
+    BrainController -> StateManager: StartSpike(timeToSpike)
+    note right of StateManager: Set spike state = ON\nPrepare for traffic routing
+    
+    StateManager -> ResourceManager: WarmUpTraffic(timeToSpike)
+    note right of ResourceManager: Initiate gradual traffic shift\nto utilize warm pool buffer
+    
+    loop Traffic Routing Phase (15s intervals)
+        ResourceManager -> VirtualService: UpdateTrafficSplit(defaultPercent, warmPoolPercent)
+        note right of VirtualService: Route traffic to warm pool buffer:\n100%/0% → 73%/27% (based on capacity)
+        
+        alt Warm Pool Buffer Handles Load
+            note right of WarmPoolBuffer: Fixed pods absorb\nspike traffic temporarily
+        else Buffer Capacity Exceeded
+            note right of DefaultHPA: Overflow traffic triggers\nHPA scaling in default namespace
+            DefaultHPA -> DefaultHPA: Auto-scale default pods
+            ResourceManager -> ResourceManager: Adjust traffic weights\nbased on new capacity
+        end
+    end
+    
+else Spike.Type == "SMALL"
+    note right of BrainController: Small spike - rely on\nwarm pool buffer capacity
+    note right of WarmPoolBuffer: Handle small spikes\nwithout traffic routing
+end
+
+BrainController --> MLPredictor: HTTP 200 OK
+@enduml

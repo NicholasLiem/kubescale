@@ -1,0 +1,29 @@
+@startuml
+title 1. Training and Data Collection
+
+participant "Machine Learning Traffic Prediction System" as MLTPS
+participant "Prometheus" as Prometheus
+
+note over MLTPS, Prometheus
+  **Configuration:**
+  X = 60 seconds (DATA_CHECK_INTERVAL)
+  Y = 200 data points (min_training_points)
+end note
+
+loop Every X Data Check Interval
+    MLTPS -> Prometheus: Collect metrics (CPU Usage)
+    MLTPS -> MLTPS: Store collected data point
+    MLTPS -> MLTPS: Check data point count
+    
+    alt Data points >= Y (threshold)
+        MLTPS -> MLTPS: Initiate parameter tuning
+        note right of MLTPS: Hyperparameter optimization\n(grid search)
+        MLTPS -> MLTPS: Train/fit prediction model
+        note right of MLTPS: SARIMA model training\nwith collected time-series data
+        MLTPS -> MLTPS: Validate model performance
+        MLTPS -> MLTPS: Update active prediction model
+    else Data points < Y
+        note right of MLTPS: Continue collecting data\nCurrent count: N/Y
+    end
+end
+@enduml
