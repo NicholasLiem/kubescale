@@ -23,7 +23,7 @@
             "periodSeconds": 15
          },
          "scaleDown": {
-            "stabilizationWindowSeconds": 120,
+            "stabilizationWindowSeconds": 60,
             "percentPolicy": 10,
             "periodSeconds": 15
          }

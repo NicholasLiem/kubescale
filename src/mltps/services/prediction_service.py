@@ -550,7 +550,7 @@ class PredictionService:
             'P': [0, 1],     # Seasonal AR for pattern repetition
             'D': [1],
             'Q': [1],     # Seasonal MA
-            's': [40]
+            's': [10, 20, 40]
         }
 
         param_combinations = list(product(
@@ -577,8 +577,8 @@ class PredictionService:
                 
                 # Score heavily weighted towards pattern accuracy
                 combined_score = (
-                    0.8 * metrics['pattern_accuracy'] +
-                    0.2 * metrics['spike_accuracy'] - 
+                    0.4 * metrics['pattern_accuracy'] +
+                    0.6 * metrics['spike_accuracy'] - 
                     0.1 * (metrics['rmse'] / 100)
                 )
                 
