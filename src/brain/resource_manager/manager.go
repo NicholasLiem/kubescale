@@ -204,19 +204,22 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 	currentDefaultPercent := int32(100)
 	currentWarmPoolPercent := int32(0)
 
-	// Calculate maximum capacities using constants
-	defaultMaxCapacity := DefaultCorePerPod * MaxPodsPerService * MaxServices   // 4.8
-	warmPoolMaxCapacity := WarmPoolCorePerPod * MaxPodsPerService * MaxServices // 1.8
-	totalMaxCapacity := defaultMaxCapacity + warmPoolMaxCapacity                // 6.6
+	defaultReplicas, err := rm.GetCurrentTotalReplicas(DefaultNamespace)
+	if err != nil {
+		fmt.Printf("Error getting default namespace replicas: %v\n", err)
+		return
+	}
 
-	// Target traffic split based on max capacity ratio
-	// Warm-pool target: 1.8 / 6.6 = ~27.27%
-	// Default target: 4.8 / 6.6 = ~72.73%
-	targetWarmPoolPercent := int32((warmPoolMaxCapacity / totalMaxCapacity) * 100) // ~27
-	targetDefaultPercent := int32(100 - targetWarmPoolPercent)                     // ~73
+	warmPoolReplicas, err := rm.GetCurrentTotalReplicas(WarmPoolNamespace)
+	if err != nil {
+		fmt.Printf("Error getting warm-pool namespace replicas: %v\n", err)
+		return
+	}
 
-	fmt.Printf("Target traffic split based on max capacity: %d%% default, %d%% warm pool\n",
-		targetDefaultPercent, targetWarmPoolPercent)
+	targetDefaultPercent, targetWarmPoolPercent := rm.CalculateResourceBasedWeights(defaultReplicas, warmPoolReplicas)
+
+	fmt.Printf("Target traffic split based on current capacity: %d%% default (%d replicas), %d%% warm pool (%d replicas)\n",
+		targetDefaultPercent, defaultReplicas, targetWarmPoolPercent, warmPoolReplicas)
 
 	// Calculate step increments
 	defaultDecrement := (currentDefaultPercent - targetDefaultPercent) / int32(totalWarmUpSteps)
@@ -240,7 +243,7 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 				}
 
 				if !warmUpCompleted {
-					// Continue gradual warm-up toward theoretical max capacity ratio
+					// Continue gradual warm-up toward current capacity ratio
 					newDefaultPercent := currentDefaultPercent - (defaultDecrement * int32(step))
 					newWarmPoolPercent := currentWarmPoolPercent + (warmPoolIncrement * int32(step))
 
