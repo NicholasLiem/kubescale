@@ -577,8 +577,8 @@ class PredictionService:
                 
                 # Score heavily weighted towards pattern accuracy
                 combined_score = (
-                    0.4 * metrics['pattern_accuracy'] +
-                    0.6 * metrics['spike_accuracy'] - 
+                    0.3 * metrics['pattern_accuracy'] +
+                    0.7 * metrics['spike_accuracy'] - 
                     0.1 * (metrics['rmse'] / 100)
                 )
                 
