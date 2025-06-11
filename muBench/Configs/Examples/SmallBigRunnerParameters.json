@@ -15,14 +15,14 @@
          "baseline_interval": 300,
          "waves": [
             {
-               "name": "big_spike_1",
-               "multiplier": 4,
+               "name": "small_spike",
+               "multiplier": 2.5,
                "duration": 240,
                "interval": 1140,
                "offset": 0
             },
             {
-               "name": "big_spike_2",
+               "name": "big_spike",
                "multiplier": 4,
                "duration": 240,
                "interval": 1140,

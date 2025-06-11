@@ -1,0 +1,60 @@
+{
+   "RunnerParameters":{
+      "ms_access_gateway": "http://127.0.0.1:80",
+      "workload_files_path_list": ["SimulationWorkspace/workload.json"],
+      "thread_pool_size": 32,
+      "workload_rounds": 1,
+      "debug_logging": true,
+      "workload_type": "periodic",
+      "rate": 0.6,
+      "minutes_to_train": 0,
+      "workload_events": 9000,
+      "wave_pattern": {
+         "enabled": true,
+         "pattern_type": "custom",
+         "baseline_interval": 180,
+         "waves": [
+            {
+               "name": "random_spike_1",
+               "multiplier": 1.8,
+               "duration": 120,
+               "interval": 900,
+               "offset": 100
+            },
+            {
+               "name": "random_spike_2",
+               "multiplier": 3.2,
+               "duration": 180,
+               "interval": 1100,
+               "offset": 350
+            },
+            {
+               "name": "random_spike_3",
+               "multiplier": 2.1,
+               "duration": 90,
+               "interval": 800,
+               "offset": 580
+            },
+            {
+               "name": "random_spike_4",
+               "multiplier": 2.8,
+               "duration": 150,
+               "interval": 1300,
+               "offset": 720
+            },
+            {
+               "name": "random_spike_5",
+               "multiplier": 1.6,
+               "duration": 200,
+               "interval": 950,
+               "offset": 890
+            }
+         ]
+      },
+      "spike_interval": 300,
+      "spike_multiplier": 15,
+      "spike_duration": 60,
+      "result_file": "randomized_result"
+   },
+   "OutputPath": "SimulationWorkspace/Result"
+}
