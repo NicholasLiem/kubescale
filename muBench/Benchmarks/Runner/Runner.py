@@ -474,6 +474,303 @@ def periodic_runner():
                 }
         run_after_workload(args)
 
+def gradual_increase_runner():
+    global start_time, stats, local_latency_stats, runner_parameters
+
+    if 'ingress_service' in runner_parameters.keys():
+        srv = runner_parameters['ingress_service']
+    else:
+        srv = 's0'
+
+    # Get gradual increase parameters
+    initial_rate = runner_parameters.get('initial_rate', 1)  # Starting requests per second
+    final_rate = runner_parameters.get('final_rate', 10)    # Ending requests per second
+    increase_duration = runner_parameters.get('increase_duration', 300)  # Duration to reach final rate (seconds)
+    
+    if 'minutes_to_train' in runner_parameters.keys():
+        minutes_to_train = runner_parameters['minutes_to_train']
+    else:
+        minutes_to_train = 0
+    
+    seconds_to_train = minutes_to_train * 60
+
+    stats = list()
+    print("###############################################")
+    print("############   Run Forrest Run!!   ############")
+    print("###############################################")
+    print(f"Gradual Increase Mode:")
+    print(f"  Initial rate: {initial_rate} req/sec")
+    print(f"  Final rate: {final_rate} req/sec") 
+    print(f"  Increase duration: {increase_duration} seconds")
+    print(f"  Training phase: {minutes_to_train} minutes")
+    
+    s = sched.scheduler(time.time, time.sleep)
+    pool = ThreadPoolExecutor(threads)
+    futures = list()
+    event = {'service': srv, 'time': 0}
+    
+    offset = 10
+    time_counter = 0
+    i = 0
+    
+    def get_current_rate(current_time):
+        """Calculate current rate based on gradual increase"""
+        if current_time < (offset + seconds_to_train):
+            # Training phase - use initial rate
+            return initial_rate
+        
+        # Calculate time since training ended
+        time_since_training = current_time - (offset + seconds_to_train)
+        
+        if time_since_training >= increase_duration:
+            # After increase duration - use final rate
+            return final_rate
+        
+        # During increase phase - linear interpolation
+        progress = time_since_training / increase_duration
+        current_rate = initial_rate + (final_rate - initial_rate) * progress
+        return current_rate
+    
+    last_logged_rate = 0
+    last_log_time = 0
+    log_interval = 30  # Log every 30 seconds
+    
+    while i < workload_events:
+        current_time = offset + time_counter
+        current_rate = get_current_rate(current_time)
+        
+        # Log rate changes periodically
+        if current_time - last_log_time >= log_interval:
+            if abs(current_rate - last_logged_rate) > 0.1:  # Only log if rate changed significantly
+                phase = "training" if current_time < (offset + seconds_to_train) else "gradual_increase"
+                print(f"[{phase.upper()}] Time: {current_time:.1f}s, Current rate: {current_rate:.2f} req/sec")
+                last_logged_rate = current_rate
+            last_log_time = current_time
+        
+        # Schedule the request
+        event_time = current_time
+        s.enter(event_time, 1, job_assignment, argument=(pool, futures, event, stats, local_latency_stats))
+        
+        # Calculate next request timing based on current rate
+        time_counter += 1.0/current_rate
+        i += 1
+
+    start_time = time.time()
+    print("Start Time:", datetime.now().strftime("%H:%M:%S.%f - %g/%m/%Y"))
+    s.run()
+
+    wait(futures)
+    run_duration_sec = time.time() - start_time
+    avg_latency = 1.0*sum(local_latency_stats)/len(local_latency_stats)
+
+    print("###############################################")
+    print("###########   Stop Forrest Stop!!   ###########")
+    print("###############################################")
+    
+    print("Run Duration (sec): %.6f" % run_duration_sec, "Total Requests: %d - Error Request: %d - Timing Error Requests: %d - Average Latency (ms): %.6f - Request rate (req/sec) %.6f" % (workload_events, error_requests.value, timing_error_requests, avg_latency, 1.0*workload_events/run_duration_sec))
+
+    if run_after_workload is not None:
+        args = {"run_duration_sec": run_duration_sec,
+                "last_print_time_ms": last_print_time_ms,
+                "requests_processed": processed_requests,
+                "timing_error_number": timing_error_requests,
+                "total_request": workload_events,
+                "error_request": error_requests,
+                "runner_results_file": f"{output_path}/{result_file}.txt"
+                }
+        run_after_workload(args)
+
+def gradual_decrease_runner():
+    global start_time, stats, local_latency_stats, runner_parameters
+
+    if 'ingress_service' in runner_parameters.keys():
+        srv = runner_parameters['ingress_service']
+    else:
+        srv = 's0'
+
+    # Get gradual decrease parameters
+    initial_rate = runner_parameters.get('initial_rate', 10)  # Starting requests per second (high)
+    final_rate = runner_parameters.get('final_rate', 1)      # Ending requests per second (low)
+    decrease_duration = runner_parameters.get('decrease_duration', 300)  # Duration to reach final rate (seconds)
+    
+    if 'minutes_to_train' in runner_parameters.keys():
+        minutes_to_train = runner_parameters['minutes_to_train']
+    else:
+        minutes_to_train = 0
+    
+    seconds_to_train = minutes_to_train * 60
+
+    stats = list()
+    print("###############################################")
+    print("############   Run Forrest Run!!   ############")
+    print("###############################################")
+    print(f"Gradual Decrease Mode:")
+    print(f"  Initial rate: {initial_rate} req/sec")
+    print(f"  Final rate: {final_rate} req/sec") 
+    print(f"  Decrease duration: {decrease_duration} seconds")
+    print(f"  Training phase: {minutes_to_train} minutes")
+    
+    s = sched.scheduler(time.time, time.sleep)
+    pool = ThreadPoolExecutor(threads)
+    futures = list()
+    event = {'service': srv, 'time': 0}
+    
+    offset = 10
+    time_counter = 0
+    i = 0
+    
+    def get_current_rate(current_time):
+        """Calculate current rate based on gradual decrease"""
+        if current_time < (offset + seconds_to_train):
+            # Training phase - use initial rate
+            return initial_rate
+        
+        # Calculate time since training ended
+        time_since_training = current_time - (offset + seconds_to_train)
+        
+        if time_since_training >= decrease_duration:
+            # After decrease duration - use final rate
+            return final_rate
+        
+        # During decrease phase - linear interpolation (decreasing)
+        progress = time_since_training / decrease_duration
+        current_rate = initial_rate - (initial_rate - final_rate) * progress
+        return current_rate
+    
+    last_logged_rate = 0
+    last_log_time = 0
+    log_interval = 30  # Log every 30 seconds
+    
+    while i < workload_events:
+        current_time = offset + time_counter
+        current_rate = get_current_rate(current_time)
+        
+        # Log rate changes periodically
+        if current_time - last_log_time >= log_interval:
+            if abs(current_rate - last_logged_rate) > 0.1:  # Only log if rate changed significantly
+                phase = "training" if current_time < (offset + seconds_to_train) else "gradual_decrease"
+                print(f"[{phase.upper()}] Time: {current_time:.1f}s, Current rate: {current_rate:.2f} req/sec")
+                last_logged_rate = current_rate
+            last_log_time = current_time
+        
+        # Schedule the request
+        event_time = current_time
+        s.enter(event_time, 1, job_assignment, argument=(pool, futures, event, stats, local_latency_stats))
+        
+        # Calculate next request timing based on current rate
+        time_counter += 1.0/current_rate
+        i += 1
+
+    start_time = time.time()
+    print("Start Time:", datetime.now().strftime("%H:%M:%S.%f - %g/%m/%Y"))
+    s.run()
+
+    wait(futures)
+    run_duration_sec = time.time() - start_time
+    avg_latency = 1.0*sum(local_latency_stats)/len(local_latency_stats)
+
+    print("###############################################")
+    print("###########   Stop Forrest Stop!!   ###########")
+    print("###############################################")
+    
+    print("Run Duration (sec): %.6f" % run_duration_sec, "Total Requests: %d - Error Request: %d - Timing Error Requests: %d - Average Latency (ms): %.6f - Request rate (req/sec) %.6f" % (workload_events, error_requests.value, timing_error_requests, avg_latency, 1.0*workload_events/run_duration_sec))
+
+    if run_after_workload is not None:
+        args = {"run_duration_sec": run_duration_sec,
+                "last_print_time_ms": last_print_time_ms,
+                "requests_processed": processed_requests,
+                "timing_error_number": timing_error_requests,
+                "total_request": workload_events,
+                "error_request": error_requests,
+                "runner_results_file": f"{output_path}/{result_file}.txt"
+                }
+        run_after_workload(args)
+
+def constant_runner():
+    global start_time, stats, local_latency_stats, runner_parameters
+
+    if 'ingress_service' in runner_parameters.keys():
+        srv = runner_parameters['ingress_service']
+    else:
+        srv = 's0'
+
+    # Get constant rate parameter
+    rate = runner_parameters.get('rate', 1)  # Default to 1 req/sec
+    
+    if 'minutes_to_train' in runner_parameters.keys():
+        minutes_to_train = runner_parameters['minutes_to_train']
+    else:
+        minutes_to_train = 0
+    
+    seconds_to_train = minutes_to_train * 60
+
+    stats = list()
+    print("###############################################")
+    print("############   Run Forrest Run!!   ############")
+    print("###############################################")
+    print(f"Constant Rate Mode:")
+    print(f"  Rate: {rate} req/sec (constant)")
+    print(f"  Training phase: {minutes_to_train} minutes")
+    print(f"  Total events: {workload_events}")
+    
+    s = sched.scheduler(time.time, time.sleep)
+    pool = ThreadPoolExecutor(threads)
+    futures = list()
+    event = {'service': srv, 'time': 0}
+    
+    offset = 10
+    time_counter = 0
+    i = 0
+    
+    # Simple constant rate calculation
+    request_interval = 1.0 / rate  # Time between requests in seconds
+    
+    last_log_time = 0
+    log_interval = 60  # Log every 60 seconds
+    
+    while i < workload_events:
+        current_time = offset + time_counter
+        
+        # Log progress periodically
+        if current_time - last_log_time >= log_interval:
+            progress_pct = (i / workload_events) * 100
+            print(f"[CONSTANT] Time: {current_time:.1f}s, Rate: {rate} req/sec, Progress: {i}/{workload_events} ({progress_pct:.1f}%)")
+            last_log_time = current_time
+        
+        # Schedule the request
+        event_time = current_time
+        s.enter(event_time, 1, job_assignment, argument=(pool, futures, event, stats, local_latency_stats))
+        
+        # Move to next request time (constant interval)
+        time_counter += request_interval
+        i += 1
+
+    start_time = time.time()
+    print("Start Time:", datetime.now().strftime("%H:%M:%S.%f - %g/%m/%Y"))
+    s.run()
+
+    wait(futures)
+    run_duration_sec = time.time() - start_time
+    avg_latency = 1.0*sum(local_latency_stats)/len(local_latency_stats)
+
+    print("###############################################")
+    print("###########   Stop Forrest Stop!!   ###########")
+    print("###############################################")
+    
+    actual_rate = workload_events / run_duration_sec
+    print("Run Duration (sec): %.6f" % run_duration_sec, "Total Requests: %d - Error Request: %d - Timing Error Requests: %d - Average Latency (ms): %.6f - Actual Request rate (req/sec) %.6f" % (workload_events, error_requests.value, timing_error_requests, avg_latency, actual_rate))
+
+    if run_after_workload is not None:
+        args = {"run_duration_sec": run_duration_sec,
+                "last_print_time_ms": last_print_time_ms,
+                "requests_processed": processed_requests,
+                "timing_error_number": timing_error_requests,
+                "total_request": workload_events,
+                "error_request": error_requests,
+                "runner_results_file": f"{output_path}/{result_file}.txt"
+                }
+        run_after_workload(args)
+
 ### Main
 
 RUNNER_PATH = os.path.dirname(os.path.abspath(__file__))
@@ -556,6 +853,18 @@ if runner_type=="greedy":
 
 elif runner_type=="periodic": 
     periodic_runner()
+    with open(f"{output_path}/{result_file}.txt", "w") as f:
+        f.writelines("\n".join(stats))
+elif runner_type=="gradual_increase": 
+    gradual_increase_runner()
+    with open(f"{output_path}/{result_file}.txt", "w") as f:
+        f.writelines("\n".join(stats))
+elif runner_type=="gradual_decrease": 
+    gradual_decrease_runner()
+    with open(f"{output_path}/{result_file}.txt", "w") as f:
+        f.writelines("\n".join(stats))
+elif runner_type=="constant": 
+    constant_runner()
     with open(f"{output_path}/{result_file}.txt", "w") as f:
         f.writelines("\n".join(stats))
 else:

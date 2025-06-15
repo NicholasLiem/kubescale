@@ -23,7 +23,7 @@ class PredictionService:
                  window_size: int = 12,
                  confidence_threshold: float = 0.7,
                  model_update_interval_minutes: int = 10,
-                 min_training_points: int = 15):
+                 min_training_points: int = 120):
         """
         Service for traffic prediction based on CPU usage
         
@@ -544,12 +544,12 @@ class PredictionService:
         test_data = self.transformed_df.iloc[train_size:]
         
         param_ranges = {
-            'p': [3, 5, 7],  # Higher AR terms to capture spike dependencies
-            'd': [0, 1],
-            'q': [1, 2],  # Higher MA terms for pattern smoothing
+            'p': [1, 2, 3, 5],  # Higher AR terms to capture spike dependencies
+            'd': [0, 1, 2],
+            'q': [1, 2, 3],  # Higher MA terms for pattern smoothing
             'P': [0, 1],     # Seasonal AR for pattern repetition
-            'D': [1],
-            'Q': [1],     # Seasonal MA
+            'D': [0, 1],
+            'Q': [0, 1, 2],     # Seasonal MA
             's': [10, 20, 40]
         }
 
@@ -885,7 +885,7 @@ class PredictionService:
     def _plot_main_forecast(self, ax, forecast_data, spikes, include_confidence):
         """Plot the main forecast with historical data"""
         # Plot historical data
-        historical_data = self.raw_df.tail(200)  # Last 50 points for context
+        historical_data = self.raw_df.tail(120)  # Last 50 points for context
         ax.plot(historical_data.index, historical_data['total'], 
                 'b-', label='Historical CPU Usage', linewidth=2, alpha=0.8)
         

@@ -5,35 +5,13 @@
       "thread_pool_size": 32,
       "workload_rounds": 1,
       "debug_logging": true,
-      "workload_type": "periodic",
-      "rate": 0.5,
+      "workload_type": "gradual_decrease",
+      "initial_rate": 2.5,
+      "final_rate": 0.2,
+      "decrease_duration": 1800,
       "minutes_to_train": 0,
-      "workload_events": 8000,
-      "wave_pattern": {
-         "enabled": true,
-         "pattern_type": "custom",
-         "baseline_interval": 300,
-         "waves": [
-            {
-               "name": "big_spike_1",
-               "multiplier": 4,
-               "duration": 240,
-               "interval": 1140,
-               "offset": 0
-            },
-            {
-               "name": "big_spike_2",
-               "multiplier": 4,
-               "duration": 240,
-               "interval": 1140,
-               "offset": 540
-            }
-         ]
-      },
-      "spike_interval": 300,
-      "spike_multiplier": 15,
-      "spike_duration": 60,
-      "result_file": "cyclical_result"
+      "workload_events": 10000,
+      "result_file": "gradual_decrease_result"
    },
    "OutputPath": "SimulationWorkspace/Result"
 }
