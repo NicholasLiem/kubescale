@@ -561,7 +561,7 @@ class PredictionService:
         best_score = float('-inf')
         results = []
         
-        for params in tqdm(param_combinations[:50], desc="Testing spike-focused parameters"):  # Limit for speed
+        for params in tqdm(param_combinations[:75], desc="Testing spike-focused parameters"):  # Limit for speed
             p, d, q, P, D, Q, s = params
             order = (p, d, q)
             seasonal_order = (P, D, Q, s)
