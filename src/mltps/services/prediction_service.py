@@ -561,13 +561,13 @@ class PredictionService:
         best_score = float('-inf')
         results = []
         
-        for params in tqdm(param_combinations[:75], desc="Testing spike-focused parameters"):  # Limit for speed
+        for params in tqdm(param_combinations[:128], desc="Testing spike-focused parameters"):  # Limit for speed
             p, d, q, P, D, Q, s = params
             order = (p, d, q)
             seasonal_order = (P, D, Q, s)
             
             try:
-                fitted = self.fit_sarima_model(train_data, order, seasonal_order)
+                fitted = self.fit_sarima_model(train_data, order, seasonal_order, 50)
                 forecast = fitted.forecast(steps=len(test_data))
                 forecast_orig = self.inverse_transform(forecast)
                 test_actual = self.raw_df.iloc[len(train_data):len(train_data)+len(test_data)]['total']
@@ -698,7 +698,7 @@ class PredictionService:
         return self.update_model()
 
     def update_model(self, force_refresh=False) -> bool:
-        """Update SARIMAX model with latest CPU usage data"""
+        """Update SARIMAX model with latest CPU usage data and always perform parameter tuning"""
         current_time = time.time()
         
         # Only update if enough time has passed (unless not initialized or forced)
@@ -747,63 +747,51 @@ class PredictionService:
                 logger.info(f"Collecting initial CPU training data: {len(prepared_df)}/{self.min_training_points} points")
                 return False
             
-            if not self.is_initialized:
-                logger.info("Performing model initialization...")
-                
-                self.analyze_data_characteristics()
-                
-                self.prepare_transformed_data(method='auto')
-                
-                self.optimize_parameters_for_spikes()
-                
-                if self.best_params is None:
-                    logger.warning("Optimization failed, using simple default")
-                    self.best_params = ((1, 1, 1), (0, 1, 0, 12))
-                
-                # Forecast 10 minutes ahead
-                forecast_data = self.forecast_future(steps=40)
-
-                enhanced_df = self.create_spike_features()
-
-                enhanced_forecast = self.predict_spike_pattern(forecast_data, enhanced_df)
-                forecast_data['forecast'] = enhanced_forecast
-                
-                grace_period = 60  # seconds
-                self.detect_spikes_in_forecast_improved(forecast_data, grace_period_seconds=grace_period)
-
-                self.is_initialized = True
-                self.last_update = current_time
-                return True
-            else:
-                # For updates, retrain with existing parameters on new data
-                logger.info("📈 Updating model with fresh data...")
-                
-                # Update transformed data with same method
-                self.prepare_transformed_data(method=self.transform_method)
-                
-                # Retrain model with existing best parameters
-                try:
-                    order, seasonal_order = self.best_params
-                    updated_model = SARIMAX(
-                        self.transformed_df['total'],
-                        order=order,
-                        seasonal_order=seasonal_order,
-                        enforce_stationarity=False,
-                        enforce_invertibility=False
-                    )
-                    self.best_model = updated_model.fit(disp=False, maxiter=25)
-                    
-                    self.last_update = current_time
-                    logger.info(f"✅ Model updated with {len(prepared_df)} data points")
-                    
-                    return True
-                    
-                except Exception as e:
-                    logger.error(f"Error updating SARIMA model: {e}")
-                    return False
+            # ALWAYS perform parameter optimization regardless of initialization status
+            logger.info("🔧 Performing parameter optimization with latest data...")
+            
+            # Analyze data characteristics
+            self.analyze_data_characteristics()
+            
+            # Prepare transformed data
+            self.prepare_transformed_data(method='auto')
+            
+            # Always optimize parameters with new data
+            self.optimize_parameters_for_spikes()
+            
+            if self.best_params is None:
+                logger.warning("Optimization failed, using robust default parameters")
+                self.best_params = ((2, 1, 2), (1, 1, 1, 20))  # More robust defaults
+            
+            logger.info(f"✅ Optimized parameters: {self.best_params}")
+            
+            # Generate forecast with new optimized model
+            forecast_data = self.forecast_future(steps=40)
+            
+            # Create enhanced features and predict spike patterns
+            enhanced_df = self.create_spike_features()
+            enhanced_forecast = self.predict_spike_pattern(forecast_data, enhanced_df)
+            forecast_data['forecast'] = enhanced_forecast
+            
+            # Detect spikes in forecast
+            grace_period = 60  # seconds
+            detected_spikes = self.detect_spikes_in_forecast_improved(
+                forecast_data, grace_period_seconds=grace_period
+            )
+            
+            logger.info(f"🎯 Detected {len(detected_spikes) if detected_spikes else 0} spikes in forecast")
+            
+            # Update status and timestamp
+            self.is_initialized = True
+            self.last_update = current_time
+            
+            logger.info(f"✅ Model fully updated and re-optimized with {len(prepared_df)} data points")
+            return True
             
         except Exception as e:
             logger.error(f"Error processing CPU metrics data for model update: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
 
     # PLOTTING USES

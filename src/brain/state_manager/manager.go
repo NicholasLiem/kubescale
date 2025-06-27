@@ -47,8 +47,8 @@ func (sm *StateManager) StartSpike(timeToSpike time.Duration) {
     sm.spikeState.TimeToSpike = timeToSpike
     sm.spikeState.PredictedSpikeTime = sm.spikeState.SpikeStartTime.Add(timeToSpike)
     
-    // Auto recovery 90 seconds after predicted spike time
-    autoRecoveryBuffer := 90 * time.Second
+    // Auto recovery 120 seconds after predicted spike time
+    autoRecoveryBuffer := 120 * time.Second
     sm.spikeState.PredictedSpikeEndTime = sm.spikeState.PredictedSpikeTime.Add(autoRecoveryBuffer)
 
     totalWaitTime := timeToSpike + autoRecoveryBuffer

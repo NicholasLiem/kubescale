@@ -10,7 +10,7 @@ class PredictionLoop:
         self.prediction_service = prediction_service
         self.metrics_service = metrics_service
         self.notification_service = notification_service
-        self.MODEL_UPDATE_INTERVAL = 10 * 60  # 10 minutes
+        self.MODEL_UPDATE_INTERVAL = 30 * 60  # 10 minutes
         self.DATA_CHECK_INTERVAL = 60  # 1 minute  
         self.PREDICTION_INTERVAL = 60  # 1 minute
         self._stop_event = threading.Event()

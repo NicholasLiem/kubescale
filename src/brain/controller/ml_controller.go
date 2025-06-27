@@ -2,8 +2,9 @@ package controller
 
 import (
 	"encoding/json"
-	"time"
+	"fmt"
 	"net/http"
+	"time"
 
 	callback "github.com/NicholasLiem/brain-controller/dto"
 	"github.com/NicholasLiem/brain-controller/resource_manager"
@@ -73,6 +74,31 @@ func (c *MLController) HandleSpikeForecast(ctx *gin.Context) {
 		return
 	}
 
+	// Debug the forecast
+	if len(spikeForecast.Spikes) == 0 {
+		ctx.JSON(http.StatusOK, gin.H{"message": "No spikes detected"})
+		return
+	}
+
+	// Log the spike forecast for debugging
+	fmt.Println("Received spike forecast:")
+	for _, spike := range spikeForecast.Spikes {
+		fmt.Printf("Index: %d, Time: %s, Value: %.2f, SpikeID: %d, Type: %s\n",
+			spike.Index, spike.Time, spike.Value, spike.SpikeID, spike.Type)
+
+		// Fix: Use the correct time format for parsing
+		spikeTime, err := time.Parse("2006-01-02T15:04:05", spike.Time)
+		if err != nil {
+			ctx.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid spike time format: %v", err)})
+			return
+		}
+
+		fmt.Printf("Parsed spike time: %s\n", spikeTime)
+		spikeTimeFromNow := spikeTime.Sub(time.Now()).Seconds()
+		spike.TimeFromNow = spikeTimeFromNow
+		fmt.Printf("Time from now: %.2f seconds\n", spike.TimeFromNow)
+	}
+
 	// Handle gradual adjustment of traffic weight
 	if len(spikeForecast.Spikes) > 0 {
 		for _, spike := range spikeForecast.Spikes {
@@ -84,12 +110,21 @@ func (c *MLController) HandleSpikeForecast(ctx *gin.Context) {
 			if spike.Type == "BIG" {
 				if !c.stateManager.IsInSpike() {
 					timeToSpike := time.Duration(spike.TimeFromNow) * time.Second
+					fmt.Printf("Spike detected: %s, Time to spike: %v\n", spike.Time, timeToSpike)
 
 					if timeToSpike > 4*time.Minute {
-                        continue
-                    }
+						continue
+					}
 
-					c.stateManager.StartSpike(timeToSpike)
+					preparationTime := 1 * time.Minute
+					adjustedTimeToSpike := timeToSpike
+					if timeToSpike > preparationTime {
+						adjustedTimeToSpike = timeToSpike - preparationTime
+					} else {
+						adjustedTimeToSpike = 0
+					}
+
+					c.stateManager.StartSpike(adjustedTimeToSpike)
 				}
 				return
 			}

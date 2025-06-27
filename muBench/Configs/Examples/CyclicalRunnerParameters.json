@@ -16,14 +16,14 @@
          "waves": [
             {
                "name": "big_spike_1",
-               "multiplier": 4,
+               "multiplier": 5,
                "duration": 240,
                "interval": 1140,
                "offset": 0
             },
             {
                "name": "big_spike_2",
-               "multiplier": 4,
+               "multiplier": 5,
                "duration": 240,
                "interval": 1140,
                "offset": 540
