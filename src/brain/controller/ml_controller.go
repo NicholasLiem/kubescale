@@ -84,6 +84,11 @@ func (c *MLController) HandleSpikeForecast(ctx *gin.Context) {
 			if spike.Type == "BIG" {
 				if !c.stateManager.IsInSpike() {
 					timeToSpike := time.Duration(spike.TimeFromNow) * time.Second
+
+					if timeToSpike > 4*time.Minute {
+                        continue
+                    }
+
 					c.stateManager.StartSpike(timeToSpike)
 				}
 				return

@@ -195,11 +195,7 @@ func (rm *ResourceManager) CalculateResourceBasedWeights(defaultReplicas, warmPo
 func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEndTime time.Time) {
 	fmt.Printf("Starting traffic warm-up for %v until %v\n", timeToWarmUp, predictedEndTime)
 
-	// Calculate warm-up phases
-	totalWarmUpSteps := int(timeToWarmUp.Seconds() / WarmUpIntervalSeconds) // 15-second intervals
-	if totalWarmUpSteps == 0 {
-		totalWarmUpSteps = 1
-	}
+	const totalWarmUpSteps = 4
 
 	currentDefaultPercent := int32(100)
 	currentWarmPoolPercent := int32(0)
@@ -221,11 +217,11 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 	fmt.Printf("Target traffic split based on current capacity: %d%% default (%d replicas), %d%% warm pool (%d replicas)\n",
 		targetDefaultPercent, defaultReplicas, targetWarmPoolPercent, warmPoolReplicas)
 
-	// Calculate step increments
 	defaultDecrement := (currentDefaultPercent - targetDefaultPercent) / int32(totalWarmUpSteps)
 	warmPoolIncrement := (targetWarmPoolPercent - currentWarmPoolPercent) / int32(totalWarmUpSteps)
 
-	ticker := time.NewTicker(WarmUpIntervalSeconds * time.Second)
+	stepInterval := timeToWarmUp / time.Duration(totalWarmUpSteps)
+	ticker := time.NewTicker(stepInterval)
 	defer ticker.Stop()
 
 	step := 0
@@ -236,18 +232,13 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 		case <-ticker.C:
 			if !warmUpCompleted {
 				step++
-				if step >= totalWarmUpSteps {
-					// Warm-up phase completed, switch to dynamic adjustment
+				if step > totalWarmUpSteps {
 					warmUpCompleted = true
 					fmt.Println("Warm-up phase completed, switching to dynamic weight adjustment")
-				}
-
-				if !warmUpCompleted {
-					// Continue gradual warm-up toward current capacity ratio
+				} else {
 					newDefaultPercent := currentDefaultPercent - (defaultDecrement * int32(step))
 					newWarmPoolPercent := currentWarmPoolPercent + (warmPoolIncrement * int32(step))
 
-					// Ensure percentages sum to 100
 					if newDefaultPercent+newWarmPoolPercent != 100 {
 						newWarmPoolPercent = 100 - newDefaultPercent
 					}
@@ -264,19 +255,16 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 			}
 
 			if warmUpCompleted {
-				// Use dynamic weight adjustment based on actual replica counts
 				rm.AdjustTrafficWeightDynamically()
 			}
 
 		case <-time.After(timeToWarmUp + 5*time.Second):
-			// Safety timeout for warm-up phase only
 			if !warmUpCompleted {
 				fmt.Println("Traffic warm-up timeout reached")
-				return
 			}
+			return
 		}
 
-		// Check if we've reached the predicted end time
 		if time.Now().After(predictedEndTime) {
 			fmt.Println("Predicted spike end time reached, stopping dynamic adjustment")
 			return
