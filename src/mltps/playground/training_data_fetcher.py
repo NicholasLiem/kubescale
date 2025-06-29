@@ -7,8 +7,8 @@ import requests
 
 today = datetime.now()
 
-start_time = today.replace(hour=15, minute=25, second=0, microsecond=0)
-end_time = today.replace(hour=15, minute=52, second=0, microsecond=0)
+start_time = today.replace(hour=22, minute=5, second=0, microsecond=0)
+end_time = today.replace(hour=22, minute=55, second=0, microsecond=0)
 
 start_timestamp = int(start_time.timestamp())
 end_timestamp = int(end_time.timestamp())
