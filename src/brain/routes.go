@@ -3,6 +3,7 @@ package main
 import (
 	"github.com/NicholasLiem/brain-controller/controller"
 	"github.com/NicholasLiem/brain-controller/resource_manager"
+	"github.com/NicholasLiem/brain-controller/services"
 	"github.com/NicholasLiem/brain-controller/state_manager"
 	"github.com/gin-gonic/gin"
 	"k8s.io/client-go/kubernetes"
@@ -15,9 +16,10 @@ func RegisterRoutes(
 	resourceManager *resource_manager.ResourceManager,
 	stateManager *state_manager.StateManager,
 	kubeClient *kubernetes.Clientset,
+	prometheusService *services.PrometheusService,
 ) {
 	mlController := controller.NewMLController(resourceManager, stateManager)
-	debugController := controller.NewDebugController(resourceManager, kubeClient)
+	debugController := controller.NewDebugController(resourceManager, kubeClient, prometheusService)
 	metadataController := controller.NewMetadataController(VERSION)
 
 	metadataController.RegisterRoutes(router)

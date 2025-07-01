@@ -7,8 +7,8 @@ import requests
 
 today = datetime.now()
 
-start_time = today.replace(hour=22, minute=5, second=0, microsecond=0)
-end_time = today.replace(hour=22, minute=55, second=0, microsecond=0)
+start_time = today.replace(hour=9, minute=55, second=0, microsecond=0)
+end_time = today.replace(hour=10, minute=20, second=0, microsecond=0)
 
 start_timestamp = int(start_time.timestamp())
 end_timestamp = int(end_time.timestamp())
@@ -30,8 +30,13 @@ for namespace, query in queries.items():
 
     response = requests.post("http://localhost:5000/query-prometheus", json=payload)
     data = response.json()
-
+    
+    print(f"Raw response data: {data}")
+    print(f"Data type: {type(data['data'])}")
+    
     metrics_data = json.loads(data['data'])
+    print(f"Parsed metrics_data keys: {metrics_data.keys()}")
+
     time_series = metrics_data['total']
 
     # Convert to DataFrame

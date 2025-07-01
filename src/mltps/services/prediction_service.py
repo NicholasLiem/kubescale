@@ -306,7 +306,7 @@ class PredictionService:
         
         return matches
     
-    def forecast_future(self, steps=100):
+    def forecast_future(self, steps=20):
         """Generate future forecasts using the best model"""
         if not self.best_params:
             raise ValueError("No optimal parameters found. Run optimize_parameters() first.")
@@ -766,7 +766,7 @@ class PredictionService:
             logger.info(f"✅ Optimized parameters: {self.best_params}")
             
             # Generate forecast with new optimized model
-            forecast_data = self.forecast_future(steps=40)
+            forecast_data = self.forecast_future(steps=20)
             
             # Create enhanced features and predict spike patterns
             enhanced_df = self.create_spike_features()
@@ -796,7 +796,7 @@ class PredictionService:
 
     # PLOTTING USES
 
-    def generate_forecast_plot(self, steps=100, figsize=(15, 10), include_confidence=True):
+    def generate_forecast_plot(self, steps=20, figsize=(15, 10), include_confidence=True):
         """Generate a comprehensive forecast visualization"""
         if not self.is_initialized:
             logger.warning("Model not initialized, cannot generate plot")
@@ -982,7 +982,7 @@ class PredictionService:
     
     # FOR UPDATING PURPOSES
 
-    def predict_spikes(self, steps=100):
+    def predict_spikes(self, steps=20):
         if not self.initialize_model:
             logger.warning("Model not initialized, cannot predict spike yet")
         

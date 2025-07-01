@@ -112,7 +112,7 @@ func (c *MLController) HandleSpikeForecast(ctx *gin.Context) {
 					timeToSpike := time.Duration(spike.TimeFromNow) * time.Second
 					fmt.Printf("Spike detected: %s, Time to spike: %v\n", spike.Time, timeToSpike)
 
-					if timeToSpike > 4*time.Minute {
+					if timeToSpike > 6*time.Minute {
 						continue
 					}
 

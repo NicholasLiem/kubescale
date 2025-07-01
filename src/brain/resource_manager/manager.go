@@ -3,9 +3,12 @@ package resource_manager
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	callback "github.com/NicholasLiem/brain-controller/dto"
+	"github.com/NicholasLiem/brain-controller/services"
 	istioclientset "istio.io/client-go/pkg/clientset/versioned"
 	v1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -13,8 +16,9 @@ import (
 )
 
 type ResourceManager struct {
-	clientSet      *kubernetes.Clientset
-	istioClientSet *istioclientset.Clientset
+	clientSet         *kubernetes.Clientset
+	istioClientSet    *istioclientset.Clientset
+	prometheusService services.PrometheusService
 }
 
 // Configuration constants
@@ -30,11 +34,12 @@ const (
 	MinTrafficPercent     = 5                                                                                                              // minimum traffic percentage to prevent complete cut-off
 	WarmUpIntervalSeconds = 15                                                                                                             // interval for warm-up steps
 	RecoverySteps         = 4                                                                                                              // number of steps for traffic recovery
+	CPURecoveryThreshold  = 0.15                                                                     // CPU usage threshold for recovery
 )
 
-func NewResourceManager(kubeClient *kubernetes.Clientset, istioClient *istioclientset.Clientset) (*ResourceManager, error) {
+func NewResourceManager(kubeClient *kubernetes.Clientset, istioClient *istioclientset.Clientset, prometheusService services.PrometheusService) (*ResourceManager, error) {
 	fmt.Println("ResourceManager initialized successfully!")
-	return &ResourceManager{clientSet: kubeClient, istioClientSet: istioClient}, nil
+	return &ResourceManager{clientSet: kubeClient, istioClientSet: istioClient, prometheusService: prometheusService}, nil
 }
 
 func (rm *ResourceManager) ScalePods(scaleRequest callback.ScaleRequest) error {
@@ -227,6 +232,8 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 	step := 0
 	warmUpCompleted := false
 
+	var cpuTicker *time.Ticker
+
 	for {
 		select {
 		case <-ticker.C:
@@ -235,6 +242,17 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 				if step > totalWarmUpSteps {
 					warmUpCompleted = true
 					fmt.Println("Warm-up phase completed, switching to dynamic weight adjustment")
+
+					// START CPU monitoring ONLY after warm-up is complete
+					go func() {
+						time.Sleep(30 * time.Second)
+						cpuTicker = time.NewTicker(15 * time.Second)
+					}()
+					defer func() {
+						if cpuTicker != nil {
+							cpuTicker.Stop()
+						}
+					}()
 				} else {
 					newDefaultPercent := currentDefaultPercent - (defaultDecrement * int32(step))
 					newWarmPoolPercent := currentWarmPoolPercent + (warmPoolIncrement * int32(step))
@@ -256,6 +274,20 @@ func (rm *ResourceManager) WarmUpTraffic(timeToWarmUp time.Duration, predictedEn
 
 			if warmUpCompleted {
 				rm.AdjustTrafficWeightDynamically()
+			}
+
+		case <-func() <-chan time.Time {
+			if cpuTicker != nil {
+				return cpuTicker.C
+			}
+			return nil // Return nil channel when ticker doesn't exist
+		}():
+			// CPU monitoring only runs after warm-up is complete
+			shouldRecover, avgCPU, err := rm.CheckCPUForRecovery([]string{"default", "warm-pool"}, CPURecoveryThreshold)
+			if err == nil && shouldRecover {
+				fmt.Printf("CPU below threshold (%.2f%% < %.1f%%), triggering recovery\n", avgCPU, CPURecoveryThreshold)
+				rm.RecoverTraffic()
+				return
 			}
 
 		case <-time.After(timeToWarmUp + 5*time.Second):
@@ -361,4 +393,38 @@ func (rm *ResourceManager) RecoverTraffic() error {
 
 	fmt.Println("Traffic recovery completed - returned to normal distribution")
 	return nil
+}
+
+func (rm *ResourceManager) CheckCPUForRecovery(namespaces []string, thresholdCore float64) (bool, float64, error) {
+	// Build namespace filter
+	nsFilter := strings.Join(namespaces, "|")
+	if nsFilter == "" {
+		nsFilter = "default"
+	}
+
+    query := `avg(sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="default", pod=~"s[0-2].*|gw-nginx.*"}[1m])))`
+
+	result, err := rm.prometheusService.Query(query)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to query CPU: %w", err)
+	}
+
+	if result.Status != "success" || len(result.Data.Result) == 0 {
+		return false, 0, fmt.Errorf("no CPU data available")
+	}
+
+	// Extract CPU value
+	var avgCPU float64
+	if len(result.Data.Result[0].Value) >= 2 {
+		if cpuStr, ok := result.Data.Result[0].Value[1].(string); ok {
+			if cpu, err := strconv.ParseFloat(cpuStr, 64); err == nil {
+				avgCPU = cpu
+			}
+		}
+	}
+
+	shouldRecover := avgCPU < thresholdCore
+	fmt.Println("Average CPU utilization:", avgCPU, "%",
+		" - Threshold:", thresholdCore, "%")
+	return shouldRecover, avgCPU, nil
 }
